@@ -1,0 +1,35 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**",
+        ".svelte-kit/**"
+      ],
+      "env": [
+        "ENV_PASSWORD",
+        "IS_DEV_LOCAL",
+        "FLY_MACHINE_ID",
+        "ENVIRONMENT",
+        "CI",
+        "VITE_*",
+        "XAUTHORITY",
+        "JWT_SECRET",
+        "CHROMIUM_PATH"
+      ]
+    },
+    "lint": {
+      "cache": true,
+      "outputs": []
+    },
+    "dev": {
+      "cache": false
+    },
+    "start": {
+      "cache": false
+    }
+  }
+}

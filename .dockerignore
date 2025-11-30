@@ -1,0 +1,16 @@
+/.git
+/node_modules
+/apps/web/.svelte-kit
+/apps/web/.build
+/apps/web/.vercel
+/apps/server/.env
+/apps/web/.env
+/apps/scheduler/.env
+/apps/tracker/.env
+/apps/revalidator/.env
+/apps/telegram-post-tracker/.env
+/apps/reddit-post-tracker/.env
+/apps/listings-service/.env
+/apps/agent-node/.env
+/apps/agent-orchestrator/.env
+/apps/agent-node/dist

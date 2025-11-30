@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.\.text-highlight {
+  @apply .rounded-md .bg-primary .bg-opacity-20 .px-1.5 .text-lg .font-medium;
+}
+
+@layer base {
+  .\.container {
+    @apply .max-w-[1535px] xl:.max-w-[1279px] lg:.max-w-[999px] md:.max-w-[767px] sm:.max-w-[479px];
+  }
+
+  .\.container-md {
+    @apply .max-w-[1279px] xl:.max-w-[999px] md:.max-w-[767px] sm:.max-w-[479px];
+  }
+}
+@layer components {
+}
+@layer utilities {
+}

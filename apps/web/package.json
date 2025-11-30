@@ -1,0 +1,39 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run -b vite dev --host 0.0.0.0 --port 5001",
+    "lint": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@fontsource/poppins": "5.0.8",
+    "dayjs": "1.11.19",
+    "~api": "workspace:*",
+    "~core": "workspace:*",
+    "~ui": "workspace:*",
+    "~utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-node": "5.3.2",
+    "@sveltejs/kit": "2.43.6",
+    "autoprefixer": "10.4.19",
+    "bun-types": "1.2.16",
+    "postcss": "8.4.40",
+    "postcss-load-config": "6.0.1",
+    "sass": "1.70.0",
+    "svelte": "5.39.7",
+    "svelte-check": "4.3.2",
+    "svelte-preprocess": "6.0.3",
+    "tailwind-preset": "workspace:*",
+    "tailwindcss": "3.4.7",
+    "tsconfig": "workspace:*",
+    "tslib": "2.6.2",
+    "typescript-eslint": "8.46.2",
+    "vite": "7.1.7"
+  },
+  "trustedDependencies": [
+    "svelte-preprocess"
+  ]
+}

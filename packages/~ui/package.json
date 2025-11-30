@@ -1,0 +1,16 @@
+{
+  "name": "~ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "svelte": "5.39.7"
+  },
+  "devDependencies": {
+    "svelte": "5.39.7",
+    "tailwind-preset": "workspace:*"
+  },
+  "peerDependencies": {
+    "svelte": ">=5.0.0" 
+  }
+}

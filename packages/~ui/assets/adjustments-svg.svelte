@@ -1,0 +1,26 @@
+<script lang="ts">
+  export let className = ''
+  export { className as class }
+</script>
+
+<svg
+  class={className}
+  height="1.35em"
+  width="1.35em"
+  viewBox="0 0 24 24"
+  stroke-width="1.5"
+  stroke="currentColor"
+  fill="none"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M4 10a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+  <path d="M6 4v4" />
+  <path d="M6 12v8" />
+  <path d="M10 16a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+  <path d="M12 4v10" />
+  <path d="M12 18v2" />
+  <path d="M16 7a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+  <path d="M18 4v1" />
+  <path d="M18 9v11" />
+</svg>

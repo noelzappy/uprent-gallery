@@ -1,0 +1,25 @@
+{
+  "name": "uprent",
+  "version": "1.86.0",
+  "devDependencies": {
+    "lightningcss": "1.30.1",
+    "prettier": "latest",
+    "prettier-plugin-svelte": "3.2.5",
+    "prettier-plugin-tailwindcss": "0.6.5",
+    "turbo": "2.5.8",
+    "typescript": "5.4.5"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "bun@1.2.16",
+  "private": true,
+  "scripts": {
+    "format": "bun -b run prettier --log-level 'warn' --write '**/*.{ts,tsx,scss,html,svelte}'",
+    "lint:all": "bun install && bun -b run turbo run lint --continue && bun -b run prettier --check '**/*.{ts,svelte,scss}'"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}

@@ -1,0 +1,146 @@
+$black: #211e1e;
+$darkGray: #333333;
+$gray: #757575;
+$lightGray: #e7e7e7;
+$white: #fafafa;
+$whiteDimmed: #efefef;
+$accent: #bd2e4f;
+$blue: #00abff;
+$lightBlue: #c9eaff;
+$red: #bd2e2e;
+$green: #8fbd2e;
+
+html {
+  --c_bg: #{$white};
+  --c_bg-secondary: #{$whiteDimmed};
+  --c_bg-dimmed: #e0e0e0;
+  --c_bg-darkened: #a0a0a0;
+  --c_bg-inverse: #{$black};
+  --c_bg-accent: #{$accent};
+  --c_bg-accent-rgb: 189, 46, 71;
+  --c_bg-accent-darkened: #a82946;
+  --c_bg-colored-1: #{$blue};
+  --c_bg-colored-2: #{$green};
+  --c_bg-rejected: #{$red};
+  --c_bg-hovered: rgba(100, 100, 100, 0.035);
+  --c_bg-hovered-2: rgba(0, 0, 0, 0.045);
+
+  --c_fg: #{$black};
+  --c_fg-secondary: #{rgba($black, 0.8)};
+  --c_fg-half-transparent: #{rgba($black, 0.6)};
+  --c_fg-inverse: #{$white};
+  --c_fg-inverse-half-transparent: #{rgba($white, 0.6)};
+  --c_fg-accent: #{$accent};
+  --c_fg-hovered: #{$blue};
+
+  --c_default-shadow:
+    0 1px 3px rgba(60, 50, 82, 0.05), rgba(60, 50, 82, 0.05) 0 20px 25px -5px,
+    rgba(60, 50, 82, 0.04) 0 10px 10px -5px;
+  --c_default-shadow-hovered:
+    0 12px 16px rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.05) 0 36px 28px -7px,
+    rgba(0, 0, 0, 0.04) 0 17px 17px -7px;
+  --c_shadow-inverse: 0 0 4px rgba(255, 255, 255, 0.5);
+
+  --c_skeleton-bg: #d9d9d9;
+
+  --c_form-card-bg: #{$whiteDimmed};
+
+  --c_button-bg: #{$black};
+  --c_button-accent-bg: #{$accent};
+  --c_button-fg: #{$white};
+  --c_button-disabled-bg: #{$lightGray};
+  --c_button-disabled-fg: #999dcc;
+
+  --c_scrollbar-bg: #d9d9d9;
+  --c_scrollbar-fg: #{$accent};
+  --c_selection-bg: #{$lightBlue};
+  --c_selection-fg: #{$black};
+  --c_logo-default: #{$white};
+  --c_logo-inverse: #{$black};
+  --c_logo-accent: #{$accent};
+  --c_progress-bar: #{$accent};
+  --c_scrolltop-bg: #{rgba($black, 0.5)};
+  --c_scrolltop-fg: #{$white};
+
+  --c_card-shadow: rgba(103, 117, 236, 0.16);
+
+  --c_text-input-icon: #{$gray};
+  --c_text-input-bg: #ffffff;
+  --c_text-input-border: #9696b1;
+  --c_text-input-border-focus: #{$black};
+  --c_text-input-error: #{$red};
+
+  --c_quiz-frame-element-border: #e8e8e8;
+  --c_quiz-radio-button-checked-bg: #{$blue};
+  --c_quiz-frame-element-hover: #ebecf8;
+  --c_quiz-picklist-close-bg: #a6a9c5;
+  --c_quiz-vocabulary-fg: #{$blue};
+  --c_quiz-vocabulary-border: #d3d6f1;
+  --c_quiz-vocabulary-shadow:
+    0 0.0625rem 0.1875rem rgba(103, 117, 236, 0.16),
+    rgba(103, 117, 236, 0.16) 0 0.625rem 0.9375rem -0.3125rem,
+    rgba(103, 117, 236, 0.12) 0 0.4375rem 0.4375rem -0.3125rem;
+
+  --c_dashboard-active-step-bg: #{$accent};
+  --c_dashboard-completed-bg: #{$green};
+  --c_dashboard-active-step-border: #d3d8f6;
+  --c_dashboard-drawer-link-divider: #eeebf3;
+  --c_dashboard-element-shadow: var(--c_default-shadow);
+  --c_dashboard-element-shadow-hovered: var(--c_default-shadow-hovered);
+  --c_dashboard-rejected-bg: #{$red};
+  --c_dashboard-not-started-bg: var(--c_bg-darkened);
+  --c_dashboard-fg-secondary: #a99db9;
+  --c_dashboard-upload-button-bg: #f2f2f2;
+  --c_dashboard-doc-success: #{$green};
+  --c-dashboard-doc-file-name-border: #c2c2c2;
+  --c-dashboard-doc-uploading-file-description: #646990;
+  --c_dashboard-badge-required-bg: #ffede1;
+  --c_dashboard-badge-required-fg: #ff6d24;
+  --c_dashboard-badge-optional-bg: #ececec;
+  --c_dashboard-badge-optional-fg: #555555;
+  --c_dashboard-info-fg: #{$blue};
+  --c-dashboard-completed-button-bg: #{$green};
+  --c-dashboard-completed-button-fg: #{$white};
+
+  --c_fs-radio-button-checked-bg: #{$blue};
+
+  --c_menu-shadow: var(--c_default-shadow);
+  --c_menu-border: #eaeaea;
+
+  --c_modal-close-button-bg: #{$red};
+  --c_drawer-close-button-bg: #bbbbbb;
+
+  --c-accordion-arrow-fg: #4f4f4f;
+  --c-accordion-panel-title-hover: #eaeaea;
+
+  --c_cookies-shadow: 0 0 4px rgba(255, 255, 255, 0.5);
+  --c_not-found-bg-start: #{rgba($accent, 0.1)};
+  --c_not-found-bg-end: #{rgba($accent, 0.4)};
+
+  --c_change-password-success: #{$green};
+
+  --c_toggle-item-arrow-fg: #{$black};
+  --c_toggle-item-read-more-fg: #8f9395;
+
+  --c_is-my-data-safe-fg: #{$green};
+
+  --c_crm-column-bg: #{$white};
+  --c_crm-hovered-column-bg: rgba(0, 0, 0, 0.07);
+  --c_crm-property-bg: #ffffff;
+  --c_crm-property-shadow: var(--c_default-shadow);
+  --c_crm-property-info-bg: #{$whiteDimmed};
+  --c_crm-checkbox-success: #{$green};
+  --c_crm-checkbox-fail: #{$red};
+  --c_crm-checkbox-not-defined: #{$gray};
+  --c_crm-extension-card-bg: #{$white};
+  --c_crm-drag-handle-bg: #{$white};
+  --c_crm-new-property-border-fg: #{$accent};
+
+  --c_search-active-list: #{$accent};
+  --c_search-button-not-saved-to-crm: #{$accent};
+  --c_search-button-saved-to-crm: #{$green};
+
+  --c_crm-filter-fg: #{$darkGray};
+  --c_crm-filter-bg: #{$white};
+  --c_crm-filter-secondary-fg: rgba(55, 53, 47, 0.65);
+}

@@ -1,0 +1,76 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+node_modules
+.pnp
+.pnp.js
+
+# testing
+coverage
+test-results
+playwright-report
+
+.vscode/
+
+# next.js
+.next/
+out/
+.build
+
+.vscode/
+
+# misc
+.DS_Store
+*.pem
+
+.cursorignore
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# local files
+.env*
+_*.ts
+fly/logs
+
+# turbo
+.turbo
+
+# IDE
+/.idea
+apps/**/.idea/
+
+playground*
+.vercel/project.json
+.vercel/README.txt
+fly/photon/photon-data
+apps/server/types/app.js
+apps/server/types/yargs-*
+
+# chromedriver
+apps/scheduler/chrome
+
+# dist
+apps/extension/dist
+apps/agent-node/dist
+apps/listings-service/browser-data
+/browser-data
+apps/dovecot-email-plugin/dist
+
+# surrealdb
+*.surql
+*.db
+
+CLAUDE.md
+
+*.eslintcache
+
+# dev-tools
+dev-tools/create-reply-to-marktplaats-metadata.ts
+dev-tools/extract-cbs-data.ts
+
+dev-tools/browser-data
+dev-tools/failed-trustpilot-agency-reviews.json

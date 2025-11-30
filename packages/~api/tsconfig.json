@@ -1,0 +1,27 @@
+{
+  "extends": "tsconfig/base.json",
+  "include": [
+    "./origin",
+    "index.ts",
+    "../../apps/server/src/app.ts"
+  ],
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "lib": [
+      "DOM",
+      "ESNext"
+    ],
+    "composite": true,
+    "strict": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": true,
+    "rootDir": "../..",
+    "paths": {
+      "@/*": [
+        "../../apps/server/src/*"
+      ]
+    }
+  }
+}

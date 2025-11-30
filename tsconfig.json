@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "es2017",
+    "module": "es2022",
+    "lib": ["DOM"],
+    "experimentalDecorators": true,
+    "resolveJsonModule": true
+  },
+  "extends": "tsconfig/base.json",
+  "exclude": [
+    "node_modules"
+  ]
+}

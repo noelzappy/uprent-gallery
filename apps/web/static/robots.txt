@@ -1,0 +1,12 @@
+User-agent: *
+Disallow: /feed
+Disallow: /saved-properties
+Disallow: /settings
+Disallow: /contract-review
+Disallow: /payment-status
+Disallow: /getting-started
+Disallow: /tenants-profile
+
+Allow: /
+
+Sitemap: https://uprent.nl/sitemap.xml

@@ -1,0 +1,16 @@
+{
+  "extends": "tsconfig/base.json",
+  "include": ["."],
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "ESNext",
+    "module": "ESNext",
+    "strictPropertyInitialization": false,
+    "skipLibCheck": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "verbatimModuleSyntax": true,
+    "lib": ["ESNext", "DOM"],
+    "types": ["bun-types"]
+  }
+}

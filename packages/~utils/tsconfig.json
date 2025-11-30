@@ -1,0 +1,27 @@
+{
+  "extends": "tsconfig/base.json",
+  "include": [
+    "."
+  ],
+  "exclude": [
+    "dist",
+    "build",
+    "node_modules"
+  ],
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "esnext",
+    "module": "esnext",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "lib": [
+      "dom",
+      "es2021",
+      "esnext"
+    ],
+    "types": [
+      "chrome-types",
+      "bun-types"
+    ]
+  }
+}

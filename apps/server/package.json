@@ -1,0 +1,35 @@
+{
+  "name": "server",
+  "version": "0.0.0",
+  "license": "UNLICENSED",
+  "module": "src/app.ts",
+  "type": "module",
+  "dependencies": {
+    "@elysiajs/cors": "1.4.0",
+    "elysia": "1.4.9",
+    "jimp": "1.6.0",
+    "~core": "workspace:*",
+    "~integrations": "workspace:*",
+    "~utils": "workspace:*"
+  },
+  "devDependencies": {
+    "bun-types": "1.2.16",
+    "@types/jimp": "0.2.28",
+    "nodemon": "3.1.10"
+  },
+  "scripts": {
+    "dev": "bun -b nodemon",
+    "lint": "tsc --noemit"
+  },
+  "nodemonConfig": {
+    "watch": [
+      "src/",
+      "../../packages/"
+    ],
+    "ignore": [
+      "node_modules/"
+    ],
+    "exec": "bun run src/app.ts",
+    "ext": "ts,js,json"
+  }
+}
