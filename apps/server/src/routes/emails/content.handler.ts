@@ -47,6 +47,7 @@ export const fetchEmailContentHandler = new Elysia().use(corePlugin).get(
   '/emails/content/:uid',
   async ({ res, params }) => {
     const { uid } = params
+    console.log(`Fetching email with UID: ${uid}`)
 
     const email = await emailServer.fetchSingleEmail(
       Bun.env.EMAIL_USERNAME!,

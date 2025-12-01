@@ -10,8 +10,6 @@ export const corePlugin = new Elysia({
     idleTimeout: 255,
   },
 })
-  // add artificial "load" time to every request
-  .onBeforeHandle(async () => await new Promise(r => setTimeout(r, 500)))
   .use(
     cors({
       origin: () => true,

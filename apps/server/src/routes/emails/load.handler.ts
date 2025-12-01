@@ -35,15 +35,14 @@ const emailHeadersResDTO = t.Object({
 })
 
 const emailReqQueryDTO = t.Object({
-  cursor: t.Optional(t.Number()),
-  limit: t.Optional(t.Number()),
+  cursor: t.Optional(t.Numeric()),
+  limit: t.Optional(t.Numeric()),
 })
 
 export const loadEmailsHandler = new Elysia().use(corePlugin).get(
   '/emails/load',
   async ({ res, query }) => {
     const { cursor, limit } = query
-
     const { emailHeaders, paging } = await emailServer.loadEmailHeaders({
       username: Bun.env.EMAIL_USERNAME!,
       password: Bun.env.EMAIL_PASSWORD!,
