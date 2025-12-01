@@ -24,6 +24,15 @@ export enum EMAIL_CATEGORY {
   Uprent = 'uprent',
 }
 
+export interface EmailHeaderCursorResponse {
+  emailHeaders: EmailHeader[]
+  paging: {
+    hasMore: boolean
+    cursor: number
+    pageSize: number
+  }
+}
+
 export interface Email {
   uid: number
   seen: boolean

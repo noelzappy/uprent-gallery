@@ -44,16 +44,15 @@ export const loadEmailsHandler = new Elysia().use(corePlugin).get(
   async ({ res, query }) => {
     const { cursor, limit } = query
 
-    const { emails, paging } = await emailServer.loadEmailHeaders({
+    const { emailHeaders, paging } = await emailServer.loadEmailHeaders({
       username: Bun.env.EMAIL_USERNAME!,
       password: Bun.env.EMAIL_PASSWORD!,
       cursor,
       limit,
     })
 
-    console.log(`Returning ${emails.length} email headers`)
     return res.ok({
-      emailHeaders: emails,
+      emailHeaders,
       paging,
     })
   },

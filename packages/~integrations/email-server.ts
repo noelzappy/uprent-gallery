@@ -5,6 +5,7 @@ import {
   type EmailAttachment,
   EMAIL_CATEGORY,
 } from '~core/database'
+import type { EmailHeaderCursorResponse } from '~core/database/data-types/email'
 import { catchError } from '~utils'
 
 export class EmailServer {
@@ -12,9 +13,7 @@ export class EmailServer {
   private connectionTimeouts: Record<string, ReturnType<typeof setTimeout>> = {}
 
   async loadEmails(username: string, password: string): Promise<Email[]> {
-    const imap = await this.connect(username, password)
-
-    await this.openBox(imap, 'INBOX')
+    const imap = await this.connectAndOpenBox(username, password, 'INBOX')
 
     try {
       const uids = await this.search(imap, ['ALL'])
@@ -38,22 +37,6 @@ export class EmailServer {
     }
   }
 
-  private connectAndOpenBox(
-    username: string,
-    password: string,
-    boxName: string,
-  ): Promise<Imap> {
-    return new Promise<Imap>(async (resolve, reject) => {
-      try {
-        const imap = await this.connect(username, password)
-        await this.openBox(imap, boxName)
-        resolve(imap)
-      } catch (err) {
-        reject(err)
-      }
-    })
-  }
-
   async loadEmailHeaders({
     username,
     password,
@@ -64,44 +47,35 @@ export class EmailServer {
     password: string
     cursor?: number
     limit?: number
-  }): Promise<{
-    emails: Email[]
-    paging: {
-      cursor: number
-      hasMore: boolean
+  }): Promise<EmailHeaderCursorResponse> {
+    const { imap, box } = await this.connectAndOpenBox(
+      username,
+      password,
+      'INBOX',
+    )
+
+    if (!box.messages.total) {
+      return {
+        emailHeaders: [],
+        paging: {
+          pageSize: 0,
+          cursor: 0,
+          hasMore: false,
+        },
+      }
     }
-  }> {
-    const imap = await this.connectAndOpenBox(username, password, 'INBOX')
 
     try {
-      const uids = await this.search(imap, ['ALL'])
+      const pagination = this.constructPagination(box, cursor, limit)
 
-      if (!uids.length) {
-        return {
-          emails: [],
-          paging: {
-            cursor: 0,
-            hasMore: false,
-          },
-        }
-      }
-
-      const start = cursor ?? 0
-      const end = limit ? start + limit : 10
-      const sliceUids = uids.slice(start, end)
-
-      const emails = await this.fetchEmailHeadersOnly(imap, sliceUids)
-
-      emails.sort(
-        (a, b) =>
-          new Date(b.datetime).getTime() - new Date(a.datetime).getTime(),
-      )
+      const emailHeaders = await this.fetchEmailHeadersOnly(imap, pagination)
 
       return {
-        emails,
+        emailHeaders,
         paging: {
-          cursor: end,
-          hasMore: end < uids.length,
+          cursor: pagination.nextCursor,
+          hasMore: pagination.hasMore,
+          pageSize: pagination.pageSize,
         },
       }
     } finally {
@@ -115,15 +89,17 @@ export class EmailServer {
     password: string,
     uid: number,
   ): Promise<Email> {
-    const imap = await this.connectAndOpenBox(username, password, 'INBOX')
+    const { box, imap } = await this.connectAndOpenBox(
+      username,
+      password,
+      'INBOX',
+    )
 
     try {
       const emails = await this.fetchAndParseEmails(imap, [uid])
-
       if (emails.length === 0) {
         throw new Error(`Email with UID ${uid} not found`)
       }
-
       return emails[0]
     } finally {
       console.log(`Closing IMAP connection for ${username}`)
@@ -131,12 +107,54 @@ export class EmailServer {
     }
   }
 
+  private constructPagination(
+    box: Imap.Box,
+    cursor: number = 0,
+    limit: number = 10,
+  ) {
+    const totalEmails = box.messages.total
+    const end = totalEmails - cursor
+    const start = Math.max(1, end - limit + 1)
+
+    const willHaveMoreAfterThisPage = start > 1
+    const nextCursor = cursor + (end - start + 1)
+
+    return {
+      start,
+      end,
+      hasMore: willHaveMoreAfterThisPage,
+      nextCursor,
+      pageSize: limit,
+    }
+  }
+
+  private connectAndOpenBox(
+    username: string,
+    password: string,
+    boxName: string,
+  ): Promise<{ imap: Imap; box: Imap.Box }> {
+    return new Promise<{ imap: Imap; box: Imap.Box }>(
+      async (resolve, reject) => {
+        try {
+          const imap = await this.connect(username, password)
+          const box = await this.openBox(imap, boxName)
+          resolve({
+            imap,
+            box,
+          })
+        } catch (err) {
+          reject(err)
+        }
+      },
+    )
+  }
+
   private async fetchEmailHeadersOnly(
     imap: Imap,
-    uids: number[],
+    pagination: { start: number; end: number },
   ): Promise<Email[]> {
     return new Promise<Email[]>((resolve, reject) => {
-      const fetch = imap.fetch(uids, {
+      const fetch = imap.seq.fetch(`${pagination.start}:${pagination.end}`, {
         bodies: 'HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID)',
         struct: false,
       })
@@ -162,6 +180,7 @@ export class EmailServer {
             try {
               const fullSource = Buffer.concat(chunks)
               const parsed = await simpleParser(fullSource)
+
               const email = this.mapParsedToEmail(uid, flags, parsed)
               resolveEmail(email)
             } catch (err) {
@@ -352,9 +371,12 @@ export class EmailServer {
     )
   }
 
-  private openBox(connection: Imap, boxName: string): Promise<void> {
+  private openBox(connection: Imap, boxName: string): Promise<Imap.Box> {
     return new Promise(resolve => {
-      connection.openBox(boxName, false, () => resolve())
+      connection.openBox(boxName, false, (err, box) => {
+        if (err) throw err
+        resolve(box)
+      })
     })
   }
 

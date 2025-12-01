@@ -8,7 +8,6 @@
   import Email from './email.svelte'
 
   let loading = $state(true)
-  let loadingHeader = $state(false)
   let emailError = $state<string | null>(null)
   let paging = $state<{ cursor: number; hasMore: boolean }>({
     cursor: 0,
