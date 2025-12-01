@@ -3,8 +3,8 @@ import { corePlugin, res } from '@/plugins'
 import { EMAIL_CATEGORY } from '~core/database'
 import { emailServer } from '~integrations/email-server'
 
-const resDTO = t.Object({
-  emails: t.Array(
+const emailHeadersResDTO = t.Object({
+  emailHeaders: t.Array(
     t.Object({
       uid: t.Number(),
       seen: t.Boolean(),
@@ -12,7 +12,6 @@ const resDTO = t.Object({
       messageId: t.String(),
       datetime: t.String({ format: 'date-time' }),
       subject: t.String(),
-      content: t.String(),
       from: t.Object({
         name: t.Optional(t.String()),
         email: t.String({ format: 'email' }),
@@ -27,30 +26,36 @@ const resDTO = t.Object({
       inReplyTo: t.Optional(t.String()),
       references: t.Optional(t.Array(t.String())),
       flags: t.Array(t.String()),
-      attachments: t.Array(
-        t.Object({
-          uid: t.Number(),
-          contentType: t.String(),
-          filename: t.Optional(t.String()),
-          size: t.Number(),
-          contentId: t.Optional(t.String()),
-          related: t.Optional(t.Boolean()),
-        }),
-      ),
     }),
   ),
+  paging: t.Object({
+    cursor: t.Number(),
+    hasMore: t.Boolean(),
+  }),
+})
+
+const emailReqQueryDTO = t.Object({
+  cursor: t.Optional(t.Number()),
+  limit: t.Optional(t.Number()),
 })
 
 export const loadEmailsHandler = new Elysia().use(corePlugin).get(
   '/emails/load',
-  async ({ res }) => {
-    const emails = await emailServer.loadEmails(
-      'testtask.2.1@mail.uprent.ai',
-      '123123123',
-    )
+  async ({ res, query }) => {
+    const { cursor, limit } = query
+
+    const { emails, paging } = await emailServer.loadEmailHeaders({
+      username: Bun.env.EMAIL_USERNAME!,
+      password: Bun.env.EMAIL_PASSWORD!,
+      cursor,
+      limit,
+    })
+
+    console.log(`Returning ${emails.length} email headers`)
     return res.ok({
-      emails,
+      emailHeaders: emails,
+      paging,
     })
   },
-  { response: res(resDTO) },
+  { response: res(emailHeadersResDTO), query: emailReqQueryDTO },
 )

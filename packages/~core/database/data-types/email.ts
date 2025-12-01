@@ -46,3 +46,19 @@ export interface Email {
   flags: string[]
   attachments: EmailAttachment[]
 }
+
+export type EmailHeader = Pick<
+  Email,
+  | 'uid'
+  | 'seen'
+  | 'categories'
+  | 'messageId'
+  | 'datetime'
+  | 'subject'
+  | 'from'
+  | 'to'
+  | 'cc'
+  | 'inReplyTo'
+  | 'references'
+  | 'flags'
+>

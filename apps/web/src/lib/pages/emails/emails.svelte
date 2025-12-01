@@ -1,36 +1,92 @@
 <script lang="ts">
   import { emailsState } from '$lib/shared/state'
-  import Email from './email.svelte'
-  import { LoadingSpinnerSVG } from '~ui/assets'
+  import { LoadingSpinnerSVG, AlertTriangleSVG } from '~ui/assets'
   import { onMount } from 'svelte'
   import api from '~api'
+  import EmailHeader from './email-header.svelte'
+  import PaginationBtn from './pagination-btn.svelte'
+  import Email from './email.svelte'
 
   let loading = $state(true)
+  let loadingHeader = $state(false)
+  let emailError = $state<string | null>(null)
+  let paging = $state<{ cursor: number; hasMore: boolean }>({
+    cursor: 0,
+    hasMore: true,
+  })
 
   onMount(async () => {
-    const { data, error } = await api.emails.load.get()
+    await onLoadEmailHeaders()
+  })
+
+  const onLoadEmailHeaders = async () => {
+    loading = true
+    const { data, error } = await api.emails.load.get({
+      query: {
+        cursor: paging.cursor,
+        limit: 5,
+      },
+    })
     loading = false
 
     if (error) {
-      console.error(error.value)
+      emailError = error.value?.message || 'An unknown error occurred.'
       return
     }
 
-    emailsState.allEmails = data.payload.emails
-  })
+    emailsState.emailHeaders = data.payload.emailHeaders
+    paging = data.payload.paging
+  }
 </script>
 
-<div class=".absolute .inset-0 .flex .flex-col .overflow-y-auto sm:.pb-16">
-  {#if loading}
+<div
+  class=".absolute .inset-0 .mx-auto .flex .max-w-7xl .flex-col .overflow-hidden sm:.pb-16"
+>
+  {#if loading && emailsState.emailHeaders.length === 0}
     <div class=".flex .h-20 .items-center .justify-center .text-gray-500">
       <div class=".flex .items-center .gap-2">
         <LoadingSpinnerSVG class=".h-4 .w-4 .shrink-0 .text-primary" />
         Fetching emails...
       </div>
     </div>
+  {:else if emailError}
+    <div
+      class="py-3 .flex .h-full .flex-col .items-center .justify-center .gap-4 .p-8 .text-center"
+    >
+      <div class=".rounded-full .bg-red-50 .p-3">
+        <AlertTriangleSVG class=".h-8 .w-8 .text-red-500" />
+      </div>
+      <div class=".max-w-md">
+        <h3 class=".text-lg .font-medium .text-gray-900">
+          Failed to load emails
+        </h3>
+        <p class=".mt-1 .text-sm .text-gray-500">{emailError}</p>
+      </div>
+      <button
+        onclick={onLoadEmailHeaders}
+        class=".hover:bg-primary/90 .focus:outline-none .focus:ring-2 .focus:ring-primary .focus:ring-offset-2 .rounded-md .bg-primary .px-4 .py-2 .text-sm .font-medium .text-white .shadow-sm"
+      >
+        Try Again
+      </button>
+    </div>
   {:else}
-    {#each emailsState.allEmails as email}
-      <Email {email} />
-    {/each}
+    <div
+      class=".flex .h-full .overflow-hidden .rounded-lg .bg-white .shadow-lg"
+    >
+      <div
+        class=".flex .w-1/3 .min-w-[320px] .flex-col .border-r .border-gray-200"
+      >
+        <div class=".flex-1 .overflow-y-auto">
+          {#each emailsState.emailHeaders as header}
+            <EmailHeader {header} />
+          {/each}
+          <PaginationBtn {paging} loadMore={onLoadEmailHeaders} {loading} />
+        </div>
+      </div>
+
+      <div class=".relative .flex .flex-1 .flex-col .bg-[#efeae2]">
+        <Email />
+      </div>
+    </div>
   {/if}
 </div>

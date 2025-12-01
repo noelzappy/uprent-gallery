@@ -13,6 +13,7 @@ export class EmailServer {
 
   async loadEmails(username: string, password: string): Promise<Email[]> {
     const imap = await this.connect(username, password)
+
     await this.openBox(imap, 'INBOX')
 
     try {
@@ -21,6 +22,9 @@ export class EmailServer {
       if (!uids.length) {
         return []
       }
+      const headers = await this.fetchEmailHeadersOnly(imap, uids.slice(0, 5))
+      console.log(`Fetched ${headers.length} email headers for ${username}`)
+      console.log(headers)
 
       const emails = await this.fetchAndParseEmails(imap, uids)
 
@@ -29,8 +33,155 @@ export class EmailServer {
           new Date(b.datetime).getTime() - new Date(a.datetime).getTime(),
       )
     } finally {
+      console.log(`Closing IMAP connection for ${username}`)
       await catchError(this.closeBox(imap), false)
     }
+  }
+
+  private connectAndOpenBox(
+    username: string,
+    password: string,
+    boxName: string,
+  ): Promise<Imap> {
+    return new Promise<Imap>(async (resolve, reject) => {
+      try {
+        const imap = await this.connect(username, password)
+        await this.openBox(imap, boxName)
+        resolve(imap)
+      } catch (err) {
+        reject(err)
+      }
+    })
+  }
+
+  async loadEmailHeaders({
+    username,
+    password,
+    cursor,
+    limit,
+  }: {
+    username: string
+    password: string
+    cursor?: number
+    limit?: number
+  }): Promise<{
+    emails: Email[]
+    paging: {
+      cursor: number
+      hasMore: boolean
+    }
+  }> {
+    const imap = await this.connectAndOpenBox(username, password, 'INBOX')
+
+    try {
+      const uids = await this.search(imap, ['ALL'])
+
+      if (!uids.length) {
+        return {
+          emails: [],
+          paging: {
+            cursor: 0,
+            hasMore: false,
+          },
+        }
+      }
+
+      const start = cursor ?? 0
+      const end = limit ? start + limit : 10
+      const sliceUids = uids.slice(start, end)
+
+      const emails = await this.fetchEmailHeadersOnly(imap, sliceUids)
+
+      emails.sort(
+        (a, b) =>
+          new Date(b.datetime).getTime() - new Date(a.datetime).getTime(),
+      )
+
+      return {
+        emails,
+        paging: {
+          cursor: end,
+          hasMore: end < uids.length,
+        },
+      }
+    } finally {
+      console.log(`Closing IMAP connection for ${username}`)
+      await catchError(this.closeBox(imap), false)
+    }
+  }
+
+  async fetchSingleEmail(
+    username: string,
+    password: string,
+    uid: number,
+  ): Promise<Email> {
+    const imap = await this.connectAndOpenBox(username, password, 'INBOX')
+
+    try {
+      const emails = await this.fetchAndParseEmails(imap, [uid])
+
+      if (emails.length === 0) {
+        throw new Error(`Email with UID ${uid} not found`)
+      }
+
+      return emails[0]
+    } finally {
+      console.log(`Closing IMAP connection for ${username}`)
+      await catchError(this.closeBox(imap), false)
+    }
+  }
+
+  private async fetchEmailHeadersOnly(
+    imap: Imap,
+    uids: number[],
+  ): Promise<Email[]> {
+    return new Promise<Email[]>((resolve, reject) => {
+      const fetch = imap.fetch(uids, {
+        bodies: 'HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID)',
+        struct: false,
+      })
+
+      const emailPromises: Promise<Email | null>[] = []
+
+      fetch.on('message', msg => {
+        const promise = new Promise<Email | null>(resolveEmail => {
+          let uid = 0
+          let flags: string[] = []
+          const chunks: Buffer[] = []
+
+          msg.once('attributes', attrs => {
+            uid = attrs.uid
+            flags = attrs.flags || []
+          })
+
+          msg.on('body', stream => {
+            stream.on('data', chunk => chunks.push(chunk))
+          })
+
+          msg.once('end', async () => {
+            try {
+              const fullSource = Buffer.concat(chunks)
+              const parsed = await simpleParser(fullSource)
+              const email = this.mapParsedToEmail(uid, flags, parsed)
+              resolveEmail(email)
+            } catch (err) {
+              console.error(`Failed to parse email UID ${uid}`, err)
+              resolveEmail(null)
+            }
+          })
+        })
+        emailPromises.push(promise)
+      })
+
+      fetch.once('error', err => {
+        reject(err)
+      })
+
+      fetch.once('end', async () => {
+        const results = await Promise.all(emailPromises)
+        resolve(results.filter((e): e is Email => e !== null))
+      })
+    })
   }
 
   private async fetchAndParseEmails(

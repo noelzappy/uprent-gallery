@@ -1,11 +1,8 @@
 {
   "compilerOptions": {
-    "lib": [
-      "ESNext"
-    ],
-    "types": [
-      "bun-types"
-    ],
+    "lib": ["ESNext"],
+    "types": ["bun-types"],
+    "moduleResolution": "bundler",
     "composite": false,
     "declaration": true,
     "declarationMap": true,
@@ -23,8 +20,5 @@
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true
   },
-  "exclude": [
-    "node_modules",
-    ".turbo"
-  ]
+  "exclude": ["node_modules", ".turbo"]
 }

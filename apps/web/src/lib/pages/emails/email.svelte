@@ -1,30 +1,76 @@
 <script lang="ts">
+  import { emailsState } from '$lib/shared/state'
   import dayjs from 'dayjs'
-  import type { Email } from '~core/database'
+  import api from '~api'
+  import type { Email, EmailHeader } from '~core/database'
 
-  let { email }: { email: Email } = $props()
+  let email = $state<Email | null>(null)
+
+  let activeEmailHeader = $derived(emailsState.activeEmailHeader)
+  let loadingEmailContent = $state(false)
+  let loadingError = $state<string | null>(null)
+  const fetchActiveEmailContent = async (emailHeader: EmailHeader) => {
+    email = emailsState.cachedEmailContents[emailHeader.uid] || null
+
+    loadingEmailContent = true
+    const { data, error } = await api.emails
+      .content({ uid: emailHeader?.uid })
+      .get()
+
+    if (error) {
+      email = null
+      loadingEmailContent = false
+      loadingError = error.value?.message || 'An unknown error occurred.'
+      return
+    }
+
+    email = data?.payload?.email ?? null
+    emailsState.cachedEmailContents = {
+      [emailHeader.uid]: email,
+    }
+    loadingError = null
+    loadingEmailContent = false
+  }
+
+  $effect(() => {
+    if (activeEmailHeader) {
+      fetchActiveEmailContent(activeEmailHeader)
+    } else {
+      email = null
+    }
+  })
 </script>
 
 <div
-  class=".flex .w-full .min-w-0 .flex-col .justify-between .gap-3 .px-4 .py-3 .text-left hover:.bg-gray-200"
+  class=".text-lef .flex .w-full .min-w-0 .flex-col .justify-between .gap-3 .px-4 .py-3"
 >
-  <span class=".flex .items-start .justify-between">
-    <span class=".mr-2 .flex .items-center .gap-1.5 .truncate .font-medium">
-      {email.subject}
+  {#if loadingEmailContent}
+    <span>Loading...</span>
+  {:else if loadingError}
+    <span class="text-red-500">{loadingError}</span>
+  {:else if email}
+    <span class=".flex .items-start .justify-between">
+      <span class=".mr-2 .flex .items-center .gap-1.5 .truncate .font-medium">
+        {email.subject}
+      </span>
+      <span class=".min-w-fit .whitespace-nowrap .text-xs .text-gray-500">
+        {dayjs(email.datetime).format('MMM D, HH:mm')}
+      </span>
     </span>
-    <span class=".min-w-fit .whitespace-nowrap .text-xs .text-gray-500">
-      {dayjs(email.datetime).format('MMM D, HH:mm')}
-    </span>
-  </span>
 
-  <span class=".flex .items-center .justify-between">
-    <span class=".truncate .text-sm .text-gray-600">
-      From
-      {email.from.name || email.from.email}
+    <span class=".flex .items-center .justify-between">
+      <span class=".truncate .text-sm .text-gray-600">
+        From
+        {email.from.name || email.from.email}
+      </span>
     </span>
-  </span>
 
-  <span class=".max-h-32 .overflow-hidden .text-ellipsis .whitespace-pre-wrap">
-    {@html email.content}
-  </span>
+    <span
+      class=".max-h-32 .overflow-hidden .text-ellipsis .whitespace-pre-wrap"
+    >
+      {@html email.content}
+    </span>
+  {:else}
+    <span class="text-gray-500">Select an email to view its content.</span>
+  {/if}
 </div>
