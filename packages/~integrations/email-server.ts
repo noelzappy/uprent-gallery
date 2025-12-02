@@ -1,45 +1,48 @@
 import Imap from 'imap'
-import {
-  simpleParser,
-  type ParsedMail,
-  type AddressObject,
-  type Source,
-} from 'mailparser'
+import { simpleParser, type ParsedMail, type AddressObject } from 'mailparser'
 import {
   type Email,
   type EmailAttachment,
   EMAIL_CATEGORY,
 } from '~core/database'
-import type {
-  EmailHeader,
-  EmailHeaderCursorResponse,
-} from '~core/database/data-types/email'
+import type { EmailCursorResponse } from '~core/database/data-types/email'
 import { catchError } from '~utils'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+
+type ConnectionParams = {
+  username: string
+  password: string
+  host: string
+  port: number
+}
 
 export class EmailServer {
   private connectionPool: Record<string, Imap> = {}
   private connectionTimeouts: Record<string, ReturnType<typeof setTimeout>> = {}
+  private attachmentsBasePath: string
 
-  async loadEmailHeaders({
-    username,
-    password,
+  constructor(attachmentsBasePath: string = './storage/attachments') {
+    this.attachmentsBasePath = attachmentsBasePath
+  }
+
+  async loadEmails({
+    connectionParams,
     cursor,
     limit,
   }: {
-    username: string
-    password: string
+    connectionParams: ConnectionParams
     cursor?: number
     limit?: number
-  }): Promise<EmailHeaderCursorResponse> {
+  }): Promise<EmailCursorResponse> {
     const { imap, box } = await this.connectAndOpenBox(
-      username,
-      password,
+      connectionParams,
       'INBOX',
     )
 
     if (!box.messages.total) {
       return {
-        emailHeaders: [],
+        emails: [],
         paging: {
           pageSize: 0,
           cursor: 0,
@@ -48,74 +51,28 @@ export class EmailServer {
       }
     }
 
-    try {
-      const pagination = this.constructPagination(box, cursor, limit)
+    const pagination = this.constructPagination(box, cursor, limit)
 
-      const emailHeaders = await this.fetchEmailHeadersOnly(imap, pagination)
-
-      return {
-        emailHeaders,
-        paging: {
-          cursor: pagination.nextCursor,
-          hasMore: pagination.hasMore,
-          pageSize: pagination.pageSize,
-        },
-      }
-    } finally {
-      await catchError(this.closeBox(imap), false)
-    }
-  }
-
-  private constructPagination(
-    box: Imap.Box,
-    cursor: number = 0,
-    limit: number = 10,
-  ) {
-    const totalEmails = box.messages.total
-    const end = totalEmails - cursor
-    const start = Math.max(1, end - limit + 1)
-
-    const willHaveMoreAfterThisPage = start > 1
-    const nextCursor = cursor + (end - start + 1)
+    const emails = await this.fetchAndParseEmails(imap, pagination)
 
     return {
-      start,
-      end,
-      hasMore: willHaveMoreAfterThisPage,
-      nextCursor,
-      pageSize: limit,
+      emails,
+      paging: {
+        cursor: pagination.nextCursor,
+        hasMore: pagination.hasMore,
+        pageSize: pagination.pageSize,
+      },
     }
   }
 
-  private connectAndOpenBox(
-    username: string,
-    password: string,
-    boxName: string,
-  ): Promise<{ imap: Imap; box: Imap.Box }> {
-    return new Promise<{ imap: Imap; box: Imap.Box }>(
-      async (resolve, reject) => {
-        try {
-          const imap = await this.connect(username, password)
-          const box = await this.openBox(imap, boxName)
-          resolve({
-            imap,
-            box,
-          })
-        } catch (err) {
-          reject(err)
-        }
-      },
-    )
-  }
-
-  private async fetchEmailHeadersOnly(
+  private async fetchAndParseEmails(
     imap: Imap,
     pagination: { start: number; end: number },
-  ): Promise<EmailHeader[]> {
-    return new Promise<EmailHeader[]>((resolve, reject) => {
-      const fetch = imap.fetch(`${pagination.start}:${pagination.end}`, {
-        bodies: 'HEADER.FIELDS (FROM TO UID SUBJECT DATE MESSAGE-ID)',
-        struct: false,
+  ): Promise<Email[]> {
+    return new Promise<Email[]>((resolve, reject) => {
+      const fetch = imap.seq.fetch(`${pagination.start}:${pagination.end}`, {
+        bodies: 'HEADER',
+        struct: true,
       })
 
       const emailPromises: Promise<Email | null>[] = []
@@ -124,22 +81,38 @@ export class EmailServer {
         const promise = new Promise<Email | null>(resolveEmail => {
           let uid = 0
           let flags: string[] = []
-          const chunks: Buffer[] = []
+          let structure: any = null
+          const bodyParts: Record<string, Buffer> = {}
 
           msg.once('attributes', attrs => {
             uid = attrs.uid
             flags = attrs.flags || []
+            structure = attrs.struct
           })
 
-          msg.on('body', stream => {
+          msg.on('body', (stream, info) => {
+            const chunks: Buffer[] = []
             stream.on('data', chunk => chunks.push(chunk))
+            stream.once('end', () => {
+              bodyParts[info.which] = Buffer.concat(chunks)
+            })
           })
 
           msg.once('end', async () => {
             try {
-              const fullSource = Buffer.concat(chunks)
-              const parsed = await simpleParser(fullSource)
-              const email = this.mapParsedToEmail(uid, flags, parsed)
+              const headerBuffer = bodyParts['HEADER'] || Buffer.from('')
+              const parsed = await simpleParser(headerBuffer)
+
+              const attachmentMetadata = structure
+                ? this.extractAttachmentMetadata(structure)
+                : []
+
+              const email = this.mapParsedToEmail(
+                uid,
+                flags,
+                parsed,
+                attachmentMetadata,
+              )
               resolveEmail(email)
             } catch (err) {
               console.error(`Failed to parse email UID ${uid}`, err)
@@ -156,71 +129,209 @@ export class EmailServer {
 
       fetch.once('end', async () => {
         const results = await Promise.all(emailPromises)
-
         resolve(results.filter((e): e is Email => e !== null))
       })
     })
   }
 
-  async fetchSingleEmail(
-    username: string,
-    password: string,
-    uid: number,
-  ): Promise<Email> {
-    const { imap } = await this.connectAndOpenBox(username, password, 'INBOX')
+  private extractAttachmentMetadata(
+    struct: any,
+    partNumber: string = '',
+  ): EmailAttachment[] {
+    const attachments: EmailAttachment[] = []
+    let index = 0
 
-    return new Promise<Email>((resolve, reject) => {
-      const fetch = imap.fetch(uid, {
-        bodies: '',
-        struct: true,
-      })
+    const traverse = (part: any, currentPartNum: string) => {
+      if (Array.isArray(part)) {
+        part.forEach((subPart, idx) => {
+          const subPartNum = currentPartNum
+            ? `${currentPartNum}.${idx + 1}`
+            : `${idx + 1}`
+          traverse(subPart, subPartNum)
+        })
+      } else if (part) {
+        const disposition = part.disposition
+        const isAttachment =
+          disposition?.type?.toLowerCase() === 'attachment' ||
+          (disposition?.type?.toLowerCase() === 'inline' &&
+            part.type !== 'text')
 
-      let parsed: ParsedMail | null = null
-      let flags: string[] = []
-      let attrs: Imap.ImapMessageAttributes | null = null
+        if (isAttachment && currentPartNum) {
+          const params = disposition?.params || {}
+          const filename =
+            params.filename || part.params?.name || `attachment-${index}`
 
-      fetch.on('message', msg => {
-        msg.on('body', (stream: NodeJS.ReadableStream) => {
-          simpleParser(stream as Source)
-            .then(mail => {
-              parsed = mail
-            })
-            .catch(err => {
+          attachments.push({
+            uid: index++,
+            contentType: `${part.type}/${part.subtype}`.toLowerCase(),
+            filename,
+            size: part.size || 0,
+            related: disposition?.type?.toLowerCase() === 'inline',
+            contentId: part.id,
+            partNumber: currentPartNum,
+          })
+        }
+
+        // Recurse into multipart parts
+        if (part.type === 'multipart' && Array.isArray(part.parts)) {
+          part.parts.forEach((subPart: any, idx: number) => {
+            const subPartNum = currentPartNum
+              ? `${currentPartNum}.${idx + 1}`
+              : `${idx + 1}`
+            traverse(subPart, subPartNum)
+          })
+        }
+      }
+    }
+
+    traverse(struct, partNumber)
+    return attachments
+  }
+
+  async fetchEmailBody({
+    connectionParams,
+    emailUid,
+  }: {
+    connectionParams: ConnectionParams
+    emailUid: number
+  }): Promise<string> {
+    const { imap } = await this.connectAndOpenBox(connectionParams, 'INBOX')
+
+    try {
+      return await new Promise<string>((resolve, reject) => {
+        const fetch = imap.fetch([emailUid], {
+          bodies: ['TEXT'],
+          struct: false,
+        })
+
+        const chunks: Buffer[] = []
+
+        fetch.on('message', msg => {
+          msg.on('body', stream => {
+            stream.on('data', chunk => chunks.push(chunk))
+          })
+
+          msg.once('end', async () => {
+            try {
+              const textBuffer = Buffer.concat(chunks)
+              const parsed = await simpleParser(textBuffer)
+              const content =
+                parsed.html || parsed.textAsHtml || parsed.text || ''
+              resolve(content)
+            } catch (err) {
               reject(err)
+            }
+          })
+        })
+
+        fetch.once('error', reject)
+      })
+    } finally {
+      await catchError(this.closeBox(imap), false)
+      this.resetInactivityTimeout(connectionParams.username)
+    }
+  }
+
+  async fetchAttachment({
+    connectionParams,
+    emailUid,
+    partNumber,
+    saveToDisk = true,
+  }: {
+    connectionParams: ConnectionParams
+    emailUid: number
+    partNumber: string
+    saveToDisk?: boolean
+  }): Promise<{ content: Buffer; path?: string }> {
+    const { imap } = await this.connectAndOpenBox(connectionParams, 'INBOX')
+
+    try {
+      return await new Promise<{ content: Buffer; path?: string }>(
+        (resolve, reject) => {
+          const fetch = imap.fetch([emailUid], {
+            bodies: [`${partNumber}`],
+            struct: false,
+          })
+
+          const chunks: Buffer[] = []
+
+          fetch.on('message', msg => {
+            msg.on('body', stream => {
+              stream.on('data', chunk => chunks.push(chunk))
             })
-        })
 
-        msg.once('attributes', a => {
-          attrs = a
-          flags = a.flags || []
-        })
-      })
+            msg.once('end', async () => {
+              try {
+                const content = Buffer.concat(chunks)
 
-      fetch.once('error', err => {
-        reject(err)
-      })
+                if (saveToDisk) {
+                  const emailDir = join(
+                    this.attachmentsBasePath,
+                    emailUid.toString(),
+                  )
+                  await mkdir(emailDir, { recursive: true })
 
-      fetch.once('end', () => {
-        if (!parsed || !attrs) {
-          return reject(new Error(`Email with UID ${uid} not found`))
-        }
+                  const filename = `part-${partNumber.replace(/\./g, '-')}`
+                  const filePath = join(emailDir, filename)
 
-        try {
-          const email = this.mapParsedToEmail(uid, flags, parsed)
-          resolve(email)
-        } catch (err) {
-          reject(err)
-        } finally {
-          catchError(this.closeBox(imap), false)
-        }
-      })
+                  await writeFile(filePath, content)
+                  resolve({ content, path: filePath })
+                } else {
+                  resolve({ content })
+                }
+              } catch (err) {
+                reject(err)
+              }
+            })
+          })
+
+          fetch.once('error', reject)
+        },
+      )
+    } finally {
+      await catchError(this.closeBox(imap), false)
+    }
+  }
+
+  async fetchAndSaveAttachment({
+    connectionParams,
+    emailUid,
+    attachment,
+  }: {
+    connectionParams: ConnectionParams
+    emailUid: number
+    attachment: EmailAttachment
+  }): Promise<string> {
+    if (!attachment.partNumber) {
+      throw new Error('Attachment must have partNumber for lazy-loading')
+    }
+
+    if (attachment.path) {
+      return attachment.path
+    }
+
+    const { content } = await this.fetchAttachment({
+      connectionParams,
+      emailUid,
+      partNumber: attachment.partNumber,
+      saveToDisk: false,
     })
+
+    const emailDir = join(this.attachmentsBasePath, emailUid.toString())
+    await mkdir(emailDir, { recursive: true })
+
+    const filename = attachment.filename || `attachment-${attachment.uid}`
+    const filePath = join(emailDir, filename)
+
+    await writeFile(filePath, content)
+    return filePath
   }
 
   private mapParsedToEmail(
     uid: number,
     flags: string[],
     parsed: ParsedMail,
+    attachments: EmailAttachment[],
   ): Email {
     let categories: EMAIL_CATEGORY[] = []
     const categoryHeader = parsed.headers.get('x-uprent-categories')
@@ -249,18 +360,6 @@ export class EmailServer {
     const toArr = getAddress(parsed.to)
     const ccArr = getAddress(parsed.cc)
 
-    // Map Attachments (Metadata only)
-    const attachments: EmailAttachment[] = (parsed.attachments || []).map(
-      (att, index) => ({
-        uid: index, // simple index as ID
-        contentType: att.contentType,
-        filename: att.filename,
-        size: att.size,
-        related: att.related || false,
-        contentId: att.contentId,
-      }),
-    )
-
     return {
       uid,
       flags,
@@ -281,27 +380,31 @@ export class EmailServer {
           : parsed.references || [],
       inReplyTo: parsed.inReplyTo,
       attachments,
-      content: parsed.html || parsed.textAsHtml || parsed.text || '',
+      content: '',
     }
   }
 
-  private async connect(username: string, password: string): Promise<Imap> {
-    if (this.connectionPool[username]) {
-      this.resetInactivityTimeout(username)
-      return this.connectionPool[username]
+  private async connect(params: ConnectionParams): Promise<Imap> {
+    if (
+      this.connectionPool[params.username] &&
+      this.connectionPool[params.username].state === 'authenticated'
+    ) {
+      this.resetInactivityTimeout(params.username)
+      return this.connectionPool[params.username]
     }
-    const imap = await this.createImap(username, password)
-    this.connectionPool[username] = imap
+
+    const imap = await this.createImap(params)
+    this.connectionPool[params.username] = imap
     return imap
   }
 
-  private createImap(username: string, password: string): Promise<Imap> {
+  private createImap(params: ConnectionParams): Promise<Imap> {
     return new Promise<Imap>((resolve, reject) => {
       const imap = new Imap({
-        user: username,
-        password,
-        host: '172.233.33.104',
-        port: 993,
+        user: params.username,
+        password: params.password,
+        host: params.host,
+        port: params.port,
         tls: true,
         authTimeout: 10000,
         connTimeout: 10000,
@@ -330,24 +433,59 @@ export class EmailServer {
     )
   }
 
-  private openBox(connection: Imap, boxName: string): Promise<Imap.Box> {
-    return new Promise((resolve, reject) => {
-      connection.openBox(boxName, false, (err, box) => {
-        if (err) {
-          return reject(err)
-        }
+  private constructPagination(
+    box: Imap.Box,
+    cursor: number = 0,
+    limit: number = 10,
+  ) {
+    const totalEmails = box.messages.total
+    const end = totalEmails - cursor
+    const start = Math.max(1, end - limit + 1)
 
+    const willHaveMoreAfterThisPage = start > 1
+    const nextCursor = cursor + (end - start + 1)
+
+    return {
+      start,
+      end,
+      hasMore: willHaveMoreAfterThisPage,
+      nextCursor,
+      pageSize: limit,
+    }
+  }
+
+  private connectAndOpenBox(
+    params: ConnectionParams,
+    boxName: string,
+  ): Promise<{ imap: Imap; box: Imap.Box }> {
+    return new Promise<{ imap: Imap; box: Imap.Box }>(
+      async (resolve, reject) => {
+        try {
+          const imap = await this.connect(params)
+          const box = await this.openBox(imap, boxName)
+          resolve({
+            imap,
+            box,
+          })
+        } catch (err) {
+          reject(err)
+        }
+      },
+    )
+  }
+
+  private openBox(connection: Imap, boxName: string): Promise<Imap.Box> {
+    return new Promise(resolve => {
+      connection.openBox(boxName, false, (err, box) => {
+        if (err) throw err
         resolve(box)
       })
     })
   }
 
   private closeBox(connection: Imap): Promise<void> {
-    return new Promise((resolve, reject) => {
-      connection.closeBox(false, err => {
-        if (err) return reject(err)
-        resolve()
-      })
+    return new Promise(resolve => {
+      connection.closeBox(false, () => resolve())
     })
   }
 
@@ -361,4 +499,4 @@ export class EmailServer {
   }
 }
 
-export const emailServer = new EmailServer()
+export const emailServer = new EmailServer('./storage/attachments')

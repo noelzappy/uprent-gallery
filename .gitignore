@@ -36,6 +36,9 @@ yarn-error.log*
 _*.ts
 fly/logs
 
+# storage
+storage/
+
 # turbo
 .turbo
 
@@ -63,7 +66,8 @@ apps/dovecot-email-plugin/dist
 # surrealdb
 *.surql
 *.db
-
+*.db-shm
+*.db-wal
 CLAUDE.md
 
 *.eslintcache

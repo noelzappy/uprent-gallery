@@ -9,27 +9,47 @@
   let activeEmailHeader = $derived(emailsState.activeEmailHeader)
   let loadingEmailContent = $state(false)
   let loadingError = $state<string | null>(null)
-  const fetchActiveEmailContent = async (emailHeader: EmailHeader) => {
-    email = emailsState.cachedEmailContents[emailHeader.uid] || null
+  let currentlyLoadingUid = $state<number | null>(null)
 
+  const fetchActiveEmailContent = async (emailHeader: EmailHeader) => {
+    if (currentlyLoadingUid === emailHeader.uid) {
+      return
+    }
+
+    const cached = emailsState.cachedEmailContents[emailHeader.uid]
+    if (cached) {
+      email = cached
+      loadingEmailContent = false
+      loadingError = null
+      return
+    }
+
+    currentlyLoadingUid = emailHeader.uid
+    email = null
     loadingEmailContent = true
+    loadingError = null
+
     const { data, error } = await api.emails
-      .content({ uid: emailHeader?.uid })
+      .content({ uid: emailHeader.uid })
       .get()
+
+    if (currentlyLoadingUid !== emailHeader.uid) {
+      return
+    }
+
+    currentlyLoadingUid = null
+    loadingEmailContent = false
 
     if (error) {
       email = null
-      loadingEmailContent = false
       loadingError = error.value?.message || 'An unknown error occurred.'
       return
     }
 
     email = data?.payload?.email ?? null
-    emailsState.cachedEmailContents = {
-      [emailHeader.uid]: email,
+    if (email) {
+      emailsState.cachedEmailContents[emailHeader.uid] = email
     }
-    loadingError = null
-    loadingEmailContent = false
   }
 
   $effect(() => {
@@ -37,6 +57,9 @@
       fetchActiveEmailContent(activeEmailHeader)
     } else {
       email = null
+      loadingEmailContent = false
+      loadingError = null
+      currentlyLoadingUid = null
     }
   })
 </script>

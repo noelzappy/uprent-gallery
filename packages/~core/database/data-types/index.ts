@@ -4,10 +4,5 @@ export { ENERGY_LABEL } from './energy-label'
 export { INTERIOR } from './property-interior'
 export { PROPERTY_SOURCE } from './property-source'
 export type { StringBoolean } from './string-boolean'
-export {
-  type Email,
-  type EmailAttachment,
-  EMAIL_CATEGORY,
-  type EmailHeader,
-} from './email'
+export { type Email, type EmailAttachment, EMAIL_CATEGORY } from './email'
 export type { TourLink, TourScene, Tour360 } from './tour-360'

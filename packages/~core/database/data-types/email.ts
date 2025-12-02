@@ -9,6 +9,8 @@ export interface EmailAttachment {
    * (at least not in the main attachments list).
    */
   related?: boolean | undefined
+  path?: string | undefined
+  partNumber?: string | undefined
 }
 
 export enum EMAIL_CATEGORY {
@@ -24,13 +26,22 @@ export enum EMAIL_CATEGORY {
   Uprent = 'uprent',
 }
 
-export interface EmailHeaderCursorResponse {
-  emailHeaders: EmailHeader[]
+export interface EmailCursorResponse {
+  emails: Email[]
   paging: {
     hasMore: boolean
     cursor: number
     pageSize: number
   }
+}
+
+export interface ImapAccount {
+  id: number
+  email_address: string
+  imap_host: string
+  imap_port: number
+  username: string
+  password: string
 }
 
 export interface Email {
@@ -53,21 +64,5 @@ export interface Email {
   inReplyTo?: string
   references?: string[]
   flags: string[]
-  attachments: EmailAttachment[]
+  attachments?: EmailAttachment[]
 }
-
-export type EmailHeader = Pick<
-  Email,
-  | 'uid'
-  | 'seen'
-  | 'categories'
-  | 'messageId'
-  | 'datetime'
-  | 'subject'
-  | 'from'
-  | 'to'
-  | 'cc'
-  | 'inReplyTo'
-  | 'references'
-  | 'flags'
->

@@ -6,7 +6,7 @@ import cors from '@elysiajs/cors'
 export const corePlugin = new Elysia({
   name: 'core.plugin',
   serve: {
-    maxRequestBodySize: 1024 * 1024 * 500,
+    maxRequestBodySize: 1024 * 1024 * 500, 
     idleTimeout: 255,
   },
 })

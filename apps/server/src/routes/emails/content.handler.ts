@@ -1,7 +1,6 @@
 import { t, Elysia } from 'elysia'
 import { corePlugin, res } from '@/plugins'
 import { EMAIL_CATEGORY } from '~core/database'
-import { emailServer } from '~integrations/email-server'
 
 const resDTO = t.Object({
   email: t.Object({
@@ -49,13 +48,8 @@ export const fetchEmailContentHandler = new Elysia().use(corePlugin).get(
     const { uid } = params
     console.log(`Fetching email with UID: ${uid}`)
 
-    const email = await emailServer.fetchSingleEmail(
-      Bun.env.EMAIL_USERNAME!,
-      Bun.env.EMAIL_PASSWORD!,
-      uid,
-    )
     return res.ok({
-      email,
+      email: [],
     })
   },
   { response: res(resDTO), params: reqParamsDTO },

@@ -23,7 +23,7 @@
     const { data, error } = await api.emails.load.get({
       query: {
         cursor: paging.cursor,
-        limit: 5,
+        limit: 10,
       },
     })
 

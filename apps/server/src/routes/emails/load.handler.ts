@@ -1,7 +1,7 @@
 import { t, Elysia } from 'elysia'
 import { corePlugin, res } from '@/plugins'
 import { EMAIL_CATEGORY } from '~core/database'
-import { emailServer } from '~integrations/email-server'
+import db from '@/db/setup-db'
 
 const emailHeadersResDTO = t.Object({
   emailHeaders: t.Array(
@@ -43,16 +43,44 @@ export const loadEmailsHandler = new Elysia().use(corePlugin).get(
   '/emails/load',
   async ({ res, query }) => {
     const { cursor, limit } = query
-    const { emailHeaders, paging } = await emailServer.loadEmailHeaders({
-      username: Bun.env.EMAIL_USERNAME!,
-      password: Bun.env.EMAIL_PASSWORD!,
-      cursor,
-      limit,
-    })
+
+    // Idealy, this should come from authenticated user context
+    const emailUserName = Bun.env.EMAIL_USERNAME!
+
+    const result = db
+      .query(
+        `
+      SELECT uid, seen, categories_json, message_id, date, subject, from_name, from_email, to_json, cc_json, in_reply_to, refs, flags_json
+      FROM emails
+      WHERE email_address = ?
+      ORDER BY date DESC
+      LIMIT ? OFFSET ?
+    `,
+      )
+      .all(emailUserName, limit || 20, cursor || 0) as {
+      uid: number
+      seen: boolean
+      categories_json: string | null
+      message_id: string
+      date: string
+      subject: string
+      from_name: string | null
+      from_email: string
+      to_json: string | null
+      cc_json: string | null
+      in_reply_to: string | null
+      refs: string | null
+      flags_json: string | null
+    }[]
+
+    console.log(`Loaded ${result.length} email headers from DB`)
 
     return res.ok({
-      emailHeaders,
-      paging,
+      emailHeaders: [],
+      paging: {
+        cursor: (cursor || 0) + (limit || 20),
+        hasMore: false,
+      },
     })
   },
   { response: res(emailHeadersResDTO), query: emailReqQueryDTO },
