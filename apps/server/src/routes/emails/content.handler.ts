@@ -49,7 +49,29 @@ export const fetchEmailContentHandler = new Elysia().use(corePlugin).get(
     console.log(`Fetching email with UID: ${uid}`)
 
     return res.ok({
-      email: [],
+      email: {
+        uid: uid,
+        seen: false,
+        messageId: 'sample-message-id',
+        datetime: new Date().toISOString(),
+        subject: 'Sample Email Subject',
+        content: '<p>This is a sample email content.</p>',
+        from: {
+          name: 'Sender Name',
+          email: 'sender@example.com',
+        },
+        to: [
+          {
+            name: 'Recipient Name',
+            email: 'recipient@example.com',
+          },
+        ],
+        cc: [],
+        inReplyTo: null,
+        references: [],
+        flags: [],
+        attachments: [],
+      },
     })
   },
   { response: res(resDTO), params: reqParamsDTO },

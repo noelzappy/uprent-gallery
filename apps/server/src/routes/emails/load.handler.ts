@@ -50,14 +50,13 @@ export const loadEmailsHandler = new Elysia().use(corePlugin).get(
     const result = db
       .query(
         `
-      SELECT uid, seen, categories_json, message_id, date, subject, from_name, from_email, to_json, cc_json, in_reply_to, refs, flags_json
+      SELECT imap_uid, categories_json, message_id, date, subject, from_name, from_email, to_json, cc_json, in_reply_to, refs, flags_json
       FROM emails
-      WHERE email_address = ?
       ORDER BY date DESC
       LIMIT ? OFFSET ?
     `,
       )
-      .all(emailUserName, limit || 20, cursor || 0) as {
+      .all(limit || 20, cursor || 0) as {
       uid: number
       seen: boolean
       categories_json: string | null
