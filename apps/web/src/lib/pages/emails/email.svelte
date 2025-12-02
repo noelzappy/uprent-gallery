@@ -2,7 +2,7 @@
   import { emailsState } from '$lib/shared/state'
   import dayjs from 'dayjs'
   import api from '~api'
-  import type { Email, EmailHeader } from '~core/database'
+  import type { Email } from '~core/database'
 
   let email = $state<Email | null>(null)
 
@@ -11,7 +11,7 @@
   let loadingError = $state<string | null>(null)
   let currentlyLoadingUid = $state<number | null>(null)
 
-  const fetchActiveEmailContent = async (emailHeader: EmailHeader) => {
+  const fetchActiveEmailContent = async (emailHeader: Email) => {
     if (currentlyLoadingUid === emailHeader.uid) {
       return
     }

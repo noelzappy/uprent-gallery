@@ -1,78 +1,78 @@
-import { t, Elysia } from 'elysia'
-import { corePlugin, res } from '@/plugins'
-import { EMAIL_CATEGORY } from '~core/database'
+// import { t, Elysia } from 'elysia'
+// import { corePlugin, res } from '@/plugins'
+// import { EMAIL_CATEGORY } from '~core/database'
 
-const resDTO = t.Object({
-  email: t.Object({
-    uid: t.Number(),
-    seen: t.Boolean(),
-    categories: t.Optional(t.Array(t.Enum(EMAIL_CATEGORY))),
-    messageId: t.String(),
-    datetime: t.String({ format: 'date-time' }),
-    subject: t.String(),
-    content: t.String(),
-    from: t.Object({
-      name: t.Optional(t.String()),
-      email: t.String({ format: 'email' }),
-    }),
-    to: t.Array(
-      t.Object({
-        name: t.Optional(t.String()),
-        email: t.String({ format: 'email' }),
-      }),
-    ),
-    cc: t.Optional(t.Array(t.String())),
-    inReplyTo: t.Optional(t.String()),
-    references: t.Optional(t.Array(t.String())),
-    flags: t.Array(t.String()),
-    attachments: t.Array(
-      t.Object({
-        uid: t.Number(),
-        contentType: t.String(),
-        filename: t.Optional(t.String()),
-        size: t.Number(),
-        contentId: t.Optional(t.String()),
-        related: t.Optional(t.Boolean()),
-      }),
-    ),
-  }),
-})
+// const resDTO = t.Object({
+//   email: t.Object({
+//     uid: t.Number(),
+//     seen: t.Boolean(),
+//     categories: t.Optional(t.Array(t.Enum(EMAIL_CATEGORY))),
+//     messageId: t.String(),
+//     datetime: t.String({ format: 'date-time' }),
+//     subject: t.String(),
+//     content: t.String(),
+//     from: t.Object({
+//       name: t.Optional(t.String()),
+//       email: t.String({ format: 'email' }),
+//     }),
+//     to: t.Array(
+//       t.Object({
+//         name: t.Optional(t.String()),
+//         email: t.String({ format: 'email' }),
+//       }),
+//     ),
+//     cc: t.Optional(t.Array(t.String())),
+//     inReplyTo: t.Optional(t.String()),
+//     references: t.Optional(t.Array(t.String())),
+//     flags: t.Array(t.String()),
+//     attachments: t.Array(
+//       t.Object({
+//         uid: t.Number(),
+//         contentType: t.String(),
+//         filename: t.Optional(t.String()),
+//         size: t.Number(),
+//         contentId: t.Optional(t.String()),
+//         related: t.Optional(t.Boolean()),
+//       }),
+//     ),
+//   }),
+// })
 
-const reqParamsDTO = t.Object({
-  uid: t.Number(),
-})
+// const reqParamsDTO = t.Object({
+//   uid: t.Number(),
+// })
 
-export const fetchEmailContentHandler = new Elysia().use(corePlugin).get(
-  '/emails/content/:uid',
-  async ({ res, params }) => {
-    const { uid } = params
-    console.log(`Fetching email with UID: ${uid}`)
+// export const fetchEmailContentHandler = new Elysia().use(corePlugin).get(
+//   '/emails/content/:uid',
+//   async ({ res, params }) => {
+//     const { uid } = params
+//     console.log(`Fetching email with UID: ${uid}`)
 
-    return res.ok({
-      email: {
-        uid: uid,
-        seen: false,
-        messageId: 'sample-message-id',
-        datetime: new Date().toISOString(),
-        subject: 'Sample Email Subject',
-        content: '<p>This is a sample email content.</p>',
-        from: {
-          name: 'Sender Name',
-          email: 'sender@example.com',
-        },
-        to: [
-          {
-            name: 'Recipient Name',
-            email: 'recipient@example.com',
-          },
-        ],
-        cc: [],
-        inReplyTo: null,
-        references: [],
-        flags: [],
-        attachments: [],
-      },
-    })
-  },
-  { response: res(resDTO), params: reqParamsDTO },
-)
+//     return res.ok({
+//       email: {
+//         uid: uid,
+//         seen: false,
+//         messageId: 'sample-message-id',
+//         datetime: new Date().toISOString(),
+//         subject: 'Sample Email Subject',
+//         content: '<p>This is a sample email content.</p>',
+//         from: {
+//           name: 'Sender Name',
+//           email: 'sender@example.com',
+//         },
+//         to: [
+//           {
+//             name: 'Recipient Name',
+//             email: 'recipient@example.com',
+//           },
+//         ],
+//         cc: [],
+//         inReplyTo: null,
+//         references: [],
+//         flags: [],
+//         attachments: [],
+//       },
+//     })
+//   },
+//   { response: res(resDTO), params: reqParamsDTO },
+// )

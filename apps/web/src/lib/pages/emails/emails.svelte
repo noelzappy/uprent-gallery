@@ -34,7 +34,7 @@
       return
     }
 
-    emailsState.emailHeaders = data.payload.emailHeaders
+    emailsState.emailHeaders = data.payload.emails
     paging = data.payload.paging
   }
 </script>

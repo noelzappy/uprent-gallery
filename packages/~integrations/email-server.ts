@@ -5,7 +5,6 @@ import {
   type EmailAttachment,
   EMAIL_CATEGORY,
 } from '~core/database'
-import type { EmailCursorResponse } from '~core/database/data-types/email'
 import { catchError } from '~utils'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -26,51 +25,89 @@ export class EmailServer {
     this.attachmentsBasePath = attachmentsBasePath
   }
 
-  async loadEmails({
-    connectionParams,
-    cursor,
-    limit,
-  }: {
-    connectionParams: ConnectionParams
-    cursor?: number
-    limit?: number
-  }): Promise<EmailCursorResponse> {
+  async loadEmails(
+    connectionParams: ConnectionParams,
+    uids: number[],
+  ): Promise<Email[]> {
     const { imap, box } = await this.connectAndOpenBox(
       connectionParams,
       'INBOX',
     )
 
     if (!box.messages.total) {
-      return {
-        emails: [],
-        paging: {
-          pageSize: 0,
-          cursor: 0,
-          hasMore: false,
-        },
-      }
+      return []
     }
 
-    const pagination = this.constructPagination(box, cursor, limit)
+    const emails = await this.fetchAndParseEmails(imap, uids)
 
-    const emails = await this.fetchAndParseEmails(imap, pagination)
+    return emails
+  }
 
-    return {
-      emails,
-      paging: {
-        cursor: pagination.nextCursor,
-        hasMore: pagination.hasMore,
-        pageSize: pagination.pageSize,
-      },
+  async getInboxStats(
+    connectionParams: ConnectionParams,
+  ): Promise<{ total: number; unseen: number }> {
+    const { imap, box } = await this.connectAndOpenBox(
+      connectionParams,
+      'INBOX',
+    )
+
+    const total = box.messages.total
+    const unseenCriteria = ['UNSEEN']
+    const unseenUids = await this.search(imap, unseenCriteria)
+    const unseen = unseenUids.length
+
+    return { total, unseen }
+  }
+
+  async getUIDs(
+    connectionParams: ConnectionParams,
+    count: number,
+    lastUID?: number,
+  ): Promise<number[]> {
+    const { imap, box } = await this.connectAndOpenBox(
+      connectionParams,
+      'INBOX',
+    )
+
+    if (box.messages.total === 0) {
+      return []
     }
+
+    const total = box.messages.total
+    const end = lastUID ? lastUID - 1 : total
+    const start = Math.max(end - count + 1, 1)
+
+    const uids: number[] = await new Promise((resolve, reject) => {
+      const fetch = imap.seq.fetch(`${start}:${end}`, {
+        bodies: [],
+      })
+
+      const uidList: number[] = []
+
+      fetch.on('message', msg => {
+        msg.once('attributes', attrs => {
+          uidList.push(attrs.uid)
+        })
+      })
+
+      fetch.once('error', err => {
+        reject(err)
+      })
+
+      fetch.once('end', () => {
+        resolve(uidList)
+      })
+    })
+
+    return uids
   }
 
   private async fetchAndParseEmails(
     imap: Imap,
-    pagination: { start: number; end: number },
+    uids: number[],
   ): Promise<Email[]> {
     return new Promise<Email[]>((resolve, reject) => {
-      const fetch = imap.seq.fetch(`${pagination.start}:${pagination.end}`, {
+      const fetch = imap.seq.fetch(uids, {
         bodies: 'HEADER',
         struct: true,
       })
@@ -431,27 +468,6 @@ export class EmailServer {
       },
       60 * 60 * 1000,
     )
-  }
-
-  private constructPagination(
-    box: Imap.Box,
-    cursor: number = 0,
-    limit: number = 10,
-  ) {
-    const totalEmails = box.messages.total
-    const end = totalEmails - cursor
-    const start = Math.max(1, end - limit + 1)
-
-    const willHaveMoreAfterThisPage = start > 1
-    const nextCursor = cursor + (end - start + 1)
-
-    return {
-      start,
-      end,
-      hasMore: willHaveMoreAfterThisPage,
-      nextCursor,
-      pageSize: limit,
-    }
   }
 
   private connectAndOpenBox(

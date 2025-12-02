@@ -66,3 +66,40 @@ export interface Email {
   flags: string[]
   attachments?: EmailAttachment[]
 }
+export interface EmailDBRecord {
+  id: number
+  emailAccountId: number
+  emailAddress: string
+  mailbox: string
+  imapUid: number
+  categoriesJson?: string
+  messageId?: string
+  subject?: string
+  fromName?: string
+  fromEmail?: string
+  toJson?: string
+  ccJson?: string
+  date?: string
+  flagsJson?: string
+  snippet?: string
+  bodyPlain?: string
+  bodyHtml?: string
+  inReplyTo?: string
+  refs?: string
+  attachmentJson?: string
+  size?: number
+  hasAttachments: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface EmailAttachmentDBRecord {
+  id: number
+  emailId: number
+  partId: string
+  filename?: string
+  mimeType?: string
+  size?: number
+  storagePath?: string
+  createdAt: string
+}

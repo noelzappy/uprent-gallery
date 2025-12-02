@@ -3,16 +3,33 @@ import { ImapAccount } from '~core/database/data-types/email'
 import { emailServer } from '~integrations/email-server'
 import { decrypt, importEncryptionKey } from '~utils'
 
-self.onmessage = async (event: MessageEvent<ImapAccount>) => {
+self.onmessage = async (event: MessageEvent<ImapAccount['id']>) => {
+  const startTime = Date.now()
   try {
+    const emailAccount = db
+      .query('SELECT * FROM email_accounts WHERE id = ?')
+      .get(event.data) as ImapAccount
+    if (!emailAccount) {
+      throw new Error('No email account found for the given ID.')
+    }
+
+    const lastSyncedUidRow = db
+      .query<
+        { maxUid: number | null; minUid: number | null },
+        [ImapAccount['id'], string]
+      >(
+        `
+        SELECT MIN(imapUid) as minUid, MAX(imapUid) as maxUid
+        FROM emails
+        WHERE emailAccountId = ? AND mailbox = ?
+      `,
+      )
+      .get(emailAccount.id, 'INBOX')
+
     const passwordDecryptionKey = await importEncryptionKey(
       Bun.env.ENCRYPTION_KEY!,
     )
 
-    const emailAccount = event.data
-    if (!emailAccount) {
-      throw new Error('No email account data received in worker.')
-    }
     const password = await decrypt(emailAccount.password, passwordDecryptionKey)
 
     const connectionParams = {
@@ -22,27 +39,26 @@ self.onmessage = async (event: MessageEvent<ImapAccount>) => {
       port: emailAccount.imap_port,
     }
 
-    const startTime = Date.now()
-
-    const result = await emailServer.loadEmails({
+    const uids = await emailServer.getUIDs(
       connectionParams,
-      limit: 10,
-    })
+      10,
+      // lastSyncedUidRow?.minUid || undefined,
+    )
 
-    const syncTime = Date.now() - startTime
-    console.log(`Synced ${result.emails.length} emails in ${syncTime}ms`)
-
-    for (const email of result.emails) {
-      const res = db
-        .query(
+    const emails = await emailServer.loadEmails(connectionParams, uids)
+    for (const email of emails) {
+      const savedEmail = db
+        .query<{ id: number }, any[]>(
           `
-          INSERT OR IGNORE INTO emails
-          (email_account_id, mailbox, imap_uid, message_id, date, subject, from_name, from_email, to_json, cc_json, in_reply_to, refs, flags_json, attachment_json)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO emails
+          (emailAccountId, emailAddress, mailbox, imapUid, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          RETURNING id
         `,
         )
-        .run(
+        .run([
           emailAccount.id,
+          emailAccount.email_address,
           'INBOX',
           email.uid,
           email.messageId,
@@ -56,46 +72,48 @@ self.onmessage = async (event: MessageEvent<ImapAccount>) => {
           email.references ? JSON.stringify(email.references) : null,
           JSON.stringify(email.flags),
           email.attachments ? JSON.stringify(email.attachments) : null,
-        )
-
-      if (!email.attachments) continue
-
-      for (const attachment of email.attachments) {
-        const attRes = await db
-          .query(
-            `
-          INSERT OR IGNORE INTO attachments
-          (email_id, part_id, filename, mime_type, size, storage_path)
-          VALUES (
-            (SELECT id FROM emails WHERE email_account_id = ? AND mailbox = 'INBOX' AND imap_uid = ?),
-            ?, ?, ?, ?, ?
-          )
-        `,
-          )
-          .run(
-            emailAccount.id,
-            email.uid,
-            attachment.partNumber || null,
-            attachment.filename || null,
-            attachment.contentType || null,
-            attachment.size || null,
-            attachment.path || null,
-          )
-      }
-    }
-
-    if (result.emails.length > 0) {
-      console.log('\n📥 Fetching body for first email...')
-      const bodyStart = Date.now()
+        ])
 
       const body = await emailServer.fetchEmailBody({
         connectionParams,
-        emailUid: result.emails[0].uid,
+        emailUid: email.uid,
       })
 
-      const bodyTime = Date.now() - bodyStart
-      console.log(`✅ Fetched body in ${bodyTime}ms`)
-      console.log(`   Length: ${body.length} chars`)
+      db.query(
+        `
+        UPDATE emails
+        SET bodyPlain = ?, bodyHtml = ?
+        WHERE id = ?
+      `,
+      ).run(body || null, savedEmail.lastInsertRowid)
+
+      for (const att of email?.attachments || []) {
+        const path = await emailServer.fetchAndSaveAttachment({
+          connectionParams,
+          emailUid: email.uid,
+          attachment: att,
+        })
+
+        console.log('Attachment saved to:', path)
+
+        db.query(
+          `
+          INSERT INTO attachments
+          (emailId, partId, filename, mimeType, size, storagePath)
+          VALUES (
+            (SELECT id FROM emails WHERE emailAccountId = ? AND mailbox = 'INBOX' AND imapUid = ?),
+            ?, ?, ?, ?, ?
+          )
+        `,
+        ).run(
+          savedEmail.lastInsertRowid,
+          att.partNumber || null,
+          att.filename || null,
+          att.contentType || null,
+          att.size || null,
+          path || null,
+        )
+      }
     }
   } catch (error) {
     console.error('Error fetching emails:', error)

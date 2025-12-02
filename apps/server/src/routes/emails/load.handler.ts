@@ -1,13 +1,14 @@
 import { t, Elysia } from 'elysia'
 import { corePlugin, res } from '@/plugins'
-import { EMAIL_CATEGORY } from '~core/database'
+import { Email, EMAIL_CATEGORY } from '~core/database'
 import db from '@/db/setup-db'
+import { EmailDBRecord } from '~core/database/data-types/email'
 
 const emailHeadersResDTO = t.Object({
-  emailHeaders: t.Array(
+  emails: t.Array(
     t.Object({
+      id: t.Number(),
       uid: t.Number(),
-      seen: t.Boolean(),
       categories: t.Optional(t.Array(t.Enum(EMAIL_CATEGORY))),
       messageId: t.String(),
       datetime: t.String({ format: 'date-time' }),
@@ -50,32 +51,40 @@ export const loadEmailsHandler = new Elysia().use(corePlugin).get(
     const result = db
       .query(
         `
-      SELECT imap_uid, categories_json, message_id, date, subject, from_name, from_email, to_json, cc_json, in_reply_to, refs, flags_json
+      SELECT id, imap_uid, categories_json, message_id, date, subject, from_name, from_email, to_json, cc_json, in_reply_to, refs, flags_json
       FROM emails
       ORDER BY date DESC
       LIMIT ? OFFSET ?
     `,
       )
-      .all(limit || 20, cursor || 0) as {
-      uid: number
-      seen: boolean
-      categories_json: string | null
-      message_id: string
-      date: string
-      subject: string
-      from_name: string | null
-      from_email: string
-      to_json: string | null
-      cc_json: string | null
-      in_reply_to: string | null
-      refs: string | null
-      flags_json: string | null
-    }[]
+      .all(limit || 20, cursor || 0) as EmailDBRecord[]
 
     console.log(`Loaded ${result.length} email headers from DB`)
 
+    console.log(result)
+
     return res.ok({
-      emailHeaders: [],
+      emails: result.map(row => ({
+        id: row.id,
+        uid: row.imapUid,
+        categories: row.categoriesJson
+          ? (JSON.parse(row.categoriesJson) as EMAIL_CATEGORY[])
+          : undefined,
+        messageId: row.messageId || '',
+        datetime: row.date || '',
+        subject: row.subject || '',
+        from: {
+          name: row.fromName || undefined,
+          email: row.fromEmail || '',
+        },
+        to: row.toJson
+          ? (JSON.parse(row.toJson) as { name?: string; email: string }[])
+          : [],
+        cc: row.ccJson ? (JSON.parse(row.ccJson) as string[]) : undefined,
+        inReplyTo: row.inReplyTo || undefined,
+        references: row.refs ? (JSON.parse(row.refs) as string[]) : undefined,
+        flags: row.flagsJson ? (JSON.parse(row.flagsJson) as string[]) : [],
+      })),
       paging: {
         cursor: (cursor || 0) + (limit || 20),
         hasMore: false,
