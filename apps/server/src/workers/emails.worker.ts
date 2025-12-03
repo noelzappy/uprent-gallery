@@ -1,7 +1,30 @@
 import db from '@/database/db'
+import { type Email } from '~core/database'
 import { ImapAccount } from '~core/database/data-types/email'
 import { emailServer } from '~integrations/email-server'
 import { decrypt, importEncryptionKey } from '~utils'
+
+const RETRY_OPTIONS = {
+  retries: 3,
+  delay: 1000,
+}
+
+async function retry<T>(
+  fn: () => Promise<T>,
+  options: { retries: number; delay: number } = RETRY_OPTIONS,
+): Promise<T> {
+  let lastError: any
+  for (let i = 0; i < options.retries; i++) {
+    try {
+      return await fn()
+    } catch (error) {
+      lastError = error
+      console.warn(`Retry attempt ${i + 1} failed:`, error)
+      await new Promise(resolve => setTimeout(resolve, options.delay * (i + 1)))
+    }
+  }
+  throw lastError
+}
 
 async function syncEmailAccount(accountId: number) {
   try {
@@ -35,7 +58,9 @@ async function syncEmailAccount(accountId: number) {
       port: emailAccount.imapPort,
     }
 
-    const { UIDs } = await emailServer.getInboxStats(connectionParams)
+    const { UIDs } = await retry(() =>
+      emailServer.getInboxStats(connectionParams),
+    )
 
     const uidsToFetch = UIDs.filter(
       uid => !lastSyncedUidRow?.maxUid || uid > lastSyncedUidRow.maxUid,
@@ -52,73 +77,128 @@ async function syncEmailAccount(accountId: number) {
       `Syncing ${uidsToFetch.length} new emails for account ${emailAccount.emailAddress}...`,
     )
 
-    const emails = await emailServer.loadEmails(connectionParams, uidsToFetch)
+    const CHUNK_SIZE = 10
+    for (let i = 0; i < uidsToFetch.length; i += CHUNK_SIZE) {
+      const chunkUids = uidsToFetch.slice(i, i + CHUNK_SIZE)
+      await processEmailChunk(chunkUids, connectionParams, emailAccount)
+    }
+  } catch (error) {
+    console.error(`Error syncing account ${accountId}:`, error)
+  }
+}
+
+async function processEmailChunk(
+  uids: number[],
+  connectionParams: any,
+  emailAccount: ImapAccount,
+) {
+  try {
+    const emails = await retry(() =>
+      emailServer.loadEmails(connectionParams, uids),
+    )
+
+    const preparedEmails: {
+      email: Email
+      body: string
+      attachments: any[]
+    }[] = []
+
     for (const email of emails) {
-      const savedEmail = db
-        .query<{ id: number }, any[]>(
-          `
+      try {
+        const body = await retry(() =>
+          emailServer.fetchEmailBody({
+            connectionParams,
+            emailUid: email.uid,
+          }),
+        )
+
+        const processedAttachments = []
+        for (const att of email.attachments || []) {
+          const path = await retry(() =>
+            emailServer.fetchAndSaveAttachment({
+              connectionParams,
+              emailUid: email.uid,
+              attachment: att,
+            }),
+          )
+          processedAttachments.push({ ...att, storagePath: path })
+        }
+
+        preparedEmails.push({
+          email,
+          body,
+          attachments: processedAttachments,
+        })
+      } catch (err) {
+        console.error(
+          `Failed to fetch details for email UID ${email.uid}. Skipping.`,
+          err,
+        )
+      }
+    }
+
+    if (preparedEmails.length === 0) return
+
+    const saveTransaction = db.transaction(
+      (
+        items: { email: Email; body: string; attachments: any[] }[],
+        accountId: number,
+        emailAddress: string,
+      ) => {
+        for (const { email, body, attachments } of items) {
+          const savedEmail = db
+            .query<{ id: number }, any[]>(
+              `
           INSERT INTO emails
-          (emailAccountId, emailAddress, mailbox, imapUid, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (emailAccountId, emailAddress, mailbox, imapUid, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson, bodyHtml)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           RETURNING id
         `,
-        )
-        .run([
-          emailAccount.id,
-          emailAccount.emailAddress,
-          'INBOX',
-          email.uid,
-          email.messageId,
-          email.datetime,
-          email.subject,
-          email.from.name || null,
-          email.from.email,
-          JSON.stringify(email.to),
-          email.cc ? JSON.stringify(email.cc) : null,
-          email.inReplyTo || null,
-          email.references ? JSON.stringify(email.references) : null,
-          JSON.stringify(email.flags),
-          email.attachments ? JSON.stringify(email.attachments) : null,
-        ])
+            )
+            .get([
+              accountId,
+              emailAddress,
+              'INBOX',
+              email.uid,
+              email.messageId,
+              email.datetime,
+              email.subject,
+              email.from.name || null,
+              email.from.email,
+              JSON.stringify(email.to),
+              email.cc ? JSON.stringify(email.cc) : null,
+              email.inReplyTo || null,
+              email.references ? JSON.stringify(email.references) : null,
+              JSON.stringify(email.flags),
+              email.attachments ? JSON.stringify(email.attachments) : null,
+              body || null,
+            ])
 
-      const body = await emailServer.fetchEmailBody({
-        connectionParams,
-        emailUid: email.uid,
-      })
+          if (!savedEmail) continue
 
-      db.query(
-        `
-        UPDATE emails
-        SET bodyHtml = ?
-        WHERE id = ?
-      `,
-      ).run(body || null, savedEmail.lastInsertRowid)
-
-      for (const att of email?.attachments || []) {
-        const path = await emailServer.fetchAndSaveAttachment({
-          connectionParams,
-          emailUid: email.uid,
-          attachment: att,
-        })
-
-        db.query(
-          `
+          for (const att of attachments) {
+            db.query(
+              `
           INSERT INTO attachments
           (emailId, partId, filename, mimeType, size, storagePath)
           VALUES ( ?, ?, ?, ?, ?, ? )
         `,
-        ).run(
-          savedEmail.lastInsertRowid,
-          att.partNumber || null,
-          att.filename || null,
-          att.contentType || null,
-          att.size || null,
-          path || null,
-        )
-      }
-    }
+            ).run(
+              savedEmail.id,
+              att.partNumber || null,
+              att.filename || null,
+              att.contentType || null,
+              att.size || null,
+              att.storagePath || null,
+            )
+          }
+        }
+      },
+    )
+
+    saveTransaction(preparedEmails, emailAccount.id, emailAccount.emailAddress)
   } catch (error) {
-    console.error('Error fetching emails:', error)
+    console.error('Error processing email chunk:', error)
   }
 }
 
@@ -185,7 +265,7 @@ async function getConnectionParams(emailUid: number) {
 async function markAsSeen(emailUid: number) {
   try {
     const { connectionParams, imapUid } = await getConnectionParams(emailUid)
-    await emailServer.markEmailAsSeen(connectionParams, imapUid)
+    await retry(() => emailServer.markEmailAsSeen(connectionParams, imapUid))
 
     const email = db
       .query('SELECT flagsJson FROM emails WHERE imapUid = ?')
@@ -207,7 +287,7 @@ async function markAsSeen(emailUid: number) {
 async function markAsUnseen(emailUid: number) {
   try {
     const { connectionParams, imapUid } = await getConnectionParams(emailUid)
-    await emailServer.markEmailAsUnseen(connectionParams, imapUid)
+    await retry(() => emailServer.markEmailAsUnseen(connectionParams, imapUid))
 
     const email = db
       .query('SELECT flagsJson FROM emails WHERE imapUid = ?')
@@ -227,7 +307,7 @@ async function markAsUnseen(emailUid: number) {
 async function deleteEmail(emailUid: number) {
   try {
     const { connectionParams, imapUid } = await getConnectionParams(emailUid)
-    await emailServer.deleteEmail(connectionParams, imapUid)
+    await retry(() => emailServer.deleteEmail(connectionParams, imapUid))
 
     db.query('UPDATE emails SET deleted = 1 WHERE imapUid = ?').run(emailUid)
   } catch (error) {
