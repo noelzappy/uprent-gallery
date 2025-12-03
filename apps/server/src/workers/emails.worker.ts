@@ -152,3 +152,12 @@ export async function initSyncAll() {
     console.error('Error in email sync worker:', error)
   }
 }
+
+declare var self: Worker
+
+self.onmessage = async (event: MessageEvent) => {
+  if (event.data === 'sync') {
+    await initSyncAll()
+    self.postMessage('done')
+  }
+}
