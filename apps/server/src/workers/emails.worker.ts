@@ -231,6 +231,16 @@ async function deleteEmail(emailId: number) {
   }
 }
 
+async function syncOneInbox(emailUserName: string) {
+  const emailAccount = db
+    .query('SELECT * FROM email_accounts WHERE emailAddress = ?')
+    .get(emailUserName) as ImapAccount
+  if (!emailAccount) {
+    throw new Error('No email account found for the given email address.')
+  }
+  await syncEmailAccount(emailAccount.id)
+}
+
 declare var self: Worker
 
 self.onmessage = async (event: MessageEvent) => {
@@ -241,7 +251,12 @@ self.onmessage = async (event: MessageEvent) => {
 
   switch (type) {
     case 'sync':
-      await initSyncAll()
+      if (payload?.emailUserName) {
+        await syncOneInbox(payload.emailUserName)
+      } else {
+        await initSyncAll()
+      }
+
       self.postMessage('done')
       break
     case 'markAsSeen':

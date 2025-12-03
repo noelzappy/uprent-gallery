@@ -2,7 +2,7 @@ import { t, Elysia } from 'elysia'
 import { corePlugin, res } from '@/plugins'
 import { EMAIL_CATEGORY } from '~core/database'
 import { EmailDBRecord } from '~core/database/data-types/email'
-import db from '@/database/db'
+import { statePlugin } from '@/state'
 
 const emailHeadersResDTO = t.Object({
   emails: t.Array(
@@ -41,20 +41,31 @@ const emailReqQueryDTO = t.Object({
   limit: t.Optional(t.Numeric()),
 })
 
-export const loadEmailsHandler = new Elysia().use(corePlugin).get(
-  '/emails/load',
-  async ({ res, query }) => {
-    const { cursor, limit } = query
-
-    // Idealy, this should come from authenticated user context
+export const loadEmailsHandler = new Elysia()
+  .use(statePlugin)
+  .use(corePlugin)
+  .post('/emails/sync', async ({ emailWorker, db }) => {
+    // Should ideally come from authenticated user context
     const emailUserName = Bun.env.EMAIL_USERNAME!
 
-    const pageSize = limit || 20
-    const offset = cursor || 0
+    emailWorker.postMessage({ type: 'sync', payload: { emailUserName } })
 
-    const result = db
-      .query(
-        `
+    return { success: true }
+  })
+  .get(
+    '/emails/load',
+    async ({ res, query, db }) => {
+      const { cursor, limit } = query
+
+      // Idealy, this should come from authenticated user context
+      const emailUserName = Bun.env.EMAIL_USERNAME!
+
+      const pageSize = limit || 20
+      const offset = cursor || 0
+
+      const result = db
+        .query(
+          `
       SELECT 
         id, imapUid, categoriesJson, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson,
         COUNT(*) OVER() as totalCount
@@ -63,44 +74,44 @@ export const loadEmailsHandler = new Elysia().use(corePlugin).get(
       ORDER BY date DESC
       LIMIT ? OFFSET ?
     `,
-      )
-      .all(emailUserName, pageSize, offset) as (EmailDBRecord & {
-      totalCount: number
-    })[]
+        )
+        .all(emailUserName, pageSize, offset) as (EmailDBRecord & {
+        totalCount: number
+      })[]
 
-    const totalEmails = result.length > 0 ? result[0].totalCount : 0
-    const hasMore = offset + pageSize < totalEmails
+      const totalEmails = result.length > 0 ? result[0].totalCount : 0
+      const hasMore = offset + pageSize < totalEmails
 
-    return res.ok({
-      emails: result.map(row => ({
-        id: row.id,
-        uid: row.imapUid,
-        seen: row.flagsJson
-          ? (JSON.parse(row.flagsJson) as string[]).includes('\\Seen')
-          : false,
-        categories: row.categoriesJson
-          ? (JSON.parse(row.categoriesJson) as EMAIL_CATEGORY[])
-          : undefined,
-        messageId: row.messageId || '',
-        datetime: row.date || '',
-        subject: row.subject || '',
-        from: {
-          name: row.fromName || undefined,
-          email: row.fromEmail || '',
+      return res.ok({
+        emails: result.map(row => ({
+          id: row.id,
+          uid: row.imapUid,
+          seen: row.flagsJson
+            ? (JSON.parse(row.flagsJson) as string[]).includes('\\Seen')
+            : false,
+          categories: row.categoriesJson
+            ? (JSON.parse(row.categoriesJson) as EMAIL_CATEGORY[])
+            : undefined,
+          messageId: row.messageId || '',
+          datetime: row.date || '',
+          subject: row.subject || '',
+          from: {
+            name: row.fromName || undefined,
+            email: row.fromEmail || '',
+          },
+          to: row.toJson
+            ? (JSON.parse(row.toJson) as { name?: string; email: string }[])
+            : [],
+          cc: row.ccJson ? (JSON.parse(row.ccJson) as string[]) : undefined,
+          inReplyTo: row.inReplyTo || undefined,
+          references: row.refs ? (JSON.parse(row.refs) as string[]) : undefined,
+          flags: row.flagsJson ? (JSON.parse(row.flagsJson) as string[]) : [],
+        })),
+        paging: {
+          cursor: offset + result.length,
+          hasMore,
         },
-        to: row.toJson
-          ? (JSON.parse(row.toJson) as { name?: string; email: string }[])
-          : [],
-        cc: row.ccJson ? (JSON.parse(row.ccJson) as string[]) : undefined,
-        inReplyTo: row.inReplyTo || undefined,
-        references: row.refs ? (JSON.parse(row.refs) as string[]) : undefined,
-        flags: row.flagsJson ? (JSON.parse(row.flagsJson) as string[]) : [],
-      })),
-      paging: {
-        cursor: offset + result.length,
-        hasMore,
-      },
-    })
-  },
-  { response: res(emailHeadersResDTO), query: emailReqQueryDTO },
-)
+      })
+    },
+    { response: res(emailHeadersResDTO), query: emailReqQueryDTO },
+  )

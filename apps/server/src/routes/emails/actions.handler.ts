@@ -1,11 +1,13 @@
 import { t, Elysia } from 'elysia'
 import { corePlugin } from '@/plugins'
+import { statePlugin } from '@/state'
 
 const paramsDTO = t.Object({
   id: t.Numeric(),
 })
 
 export const emailActionsHandler = new Elysia()
+  .use(statePlugin)
   .use(corePlugin)
   .post(
     '/emails/:id/seen',
@@ -18,11 +20,8 @@ export const emailActionsHandler = new Elysia()
   )
   .delete(
     '/emails/:id/seen',
-    async context => {
-      const {
-        params: { id },
-        emailWorker,
-      } = context as any
+    async ({ params, emailWorker }) => {
+      const { id } = params
       emailWorker.postMessage({
         type: 'markAsUnseen',
         payload: { emailId: id },
@@ -33,11 +32,8 @@ export const emailActionsHandler = new Elysia()
   )
   .delete(
     '/emails/:id',
-    async context => {
-      const {
-        params: { id },
-        emailWorker,
-      } = context as any
+    async ({ params, emailWorker }) => {
+      const { id } = params
       emailWorker.postMessage({ type: 'deleteEmail', payload: { emailId: id } })
       return { success: true }
     },

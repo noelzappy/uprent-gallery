@@ -3,17 +3,13 @@ import { emailsRoute, propertiesRoute } from './routes'
 import { initDatabase, seedDatabase } from './database/setup-db'
 import db from './database/db'
 import { corePlugin } from './plugins'
+import { statePlugin, worker } from './state'
 
 initDatabase(db)
 await seedDatabase(db)
 
-const worker = new Worker(
-  new URL('./workers/emails.worker.ts', import.meta.url).href,
-)
-
 const app = new Elysia()
-  .decorate('db', db)
-  .decorate('emailWorker', worker)
+  .use(statePlugin)
   .use(emailsRoute)
   .use(propertiesRoute)
   .use(corePlugin)
