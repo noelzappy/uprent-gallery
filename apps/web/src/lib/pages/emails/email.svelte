@@ -1,7 +1,8 @@
 <script lang="ts">
   import { emailsState } from '$lib/shared/state'
+  import { TrashSVG, EyeOffSVG, PaperclipSVG, DownloadSVG } from '~ui/assets'
   import dayjs from 'dayjs'
-  import api from '~api'
+  import api, { API_URL } from '~api'
   import type { Email } from '~core/database'
   import type { EmailAttachmentDBRecord } from '~core/database/data-types/email'
 
@@ -121,40 +122,111 @@
       loadingEmailContent = false
       loadingError = null
       currentlyLoadingUid = null
+      attachments = []
     }
   })
 </script>
 
-<div
-  class=".text-lef .flex .w-full .min-w-0 .flex-col .justify-between .gap-3 .px-4 .py-3"
->
+<div class=".flex .h-full .w-full .flex-col .overflow-hidden .bg-white">
   {#if loadingEmailContent}
-    <span>Loading...</span>
+    <div class=".flex .h-full .items-center .justify-center .text-gray-500">
+      Loading...
+    </div>
   {:else if loadingError}
-    <span class="text-red-500">{loadingError}</span>
+    <div class=".flex .h-full .items-center .justify-center .text-red-500">
+      {loadingError}
+    </div>
   {:else if email}
-    <span class=".flex .items-start .justify-between">
-      <span class=".mr-2 .flex .items-center .gap-1.5 .truncate .font-medium">
-        {email.subject}
-      </span>
-      <span class=".min-w-fit .whitespace-nowrap .text-xs .text-gray-500">
-        {dayjs(email.datetime).format('MMM D, HH:mm')}
-      </span>
-    </span>
-
-    <span class=".flex .items-center .justify-between">
-      <span class=".truncate .text-sm .text-gray-600">
-        From
-        {email.from.name || email.from.email}
-      </span>
-    </span>
-
-    <span
-      class=".max-h-32 .overflow-hidden .text-ellipsis .whitespace-pre-wrap"
+    <div
+      class=".flex .items-center .justify-between .border-b .border-gray-200 .px-6 .py-4"
     >
-      {@html email.content}
-    </span>
+      <div class=".flex .items-center .gap-2">
+        <button
+          class=".flex .items-center .gap-2 .rounded-md .px-3 .py-1.5 .text-sm .font-medium .text-gray-700 hover:.bg-gray-100"
+          onclick={() => email && markEmailAsUnseen(email.uid)}
+          title="Mark as Unseen"
+        >
+          <EyeOffSVG class=".h-4 .w-4" />
+          <span class=".hidden sm:.inline">Mark Unseen</span>
+        </button>
+        <button
+          class=".flex .items-center .gap-2 .rounded-md .px-3 .py-1.5 .text-sm .font-medium .text-red-600 hover:.bg-red-50"
+          onclick={() => email && deleteEmail(email.uid)}
+          title="Delete Email"
+        >
+          <TrashSVG class=".h-4 .w-4" />
+          <span class=".hidden sm:.inline">Delete</span>
+        </button>
+      </div>
+      <div class=".text-sm .text-gray-500">
+        {dayjs(email.datetime).format('MMM D, YYYY, HH:mm')}
+      </div>
+    </div>
+
+    <div class=".flex-1 .overflow-y-auto .p-6">
+      <div class=".mb-6">
+        <h1 class=".mb-2 .text-2xl .font-bold .text-gray-900">
+          {email.subject}
+        </h1>
+        <div class=".flex .items-center .justify-between">
+          <div class=".flex .items-center .gap-2">
+            <div
+              class=".text-primary-700 .flex .h-10 .w-10 .items-center .justify-center .rounded-full .bg-primary-100 .font-bold"
+            >
+              {(email.from.name || email.from.email)[0].toUpperCase()}
+            </div>
+            <div>
+              <div class=".font-medium .text-gray-900">
+                {email.from.name || email.from.email}
+              </div>
+              <div class=".text-sm .text-gray-500">
+                &lt;{email.from.email}&gt;
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {#if attachments.length > 0}
+        <div class=".mb-6 .border-b .border-t .border-gray-200 .py-4">
+          <div
+            class=".mb-2 .flex .items-center .gap-2 .text-sm .font-medium .text-gray-700"
+          >
+            <PaperclipSVG class=".h-4 .w-4" />
+            {attachments.length} Attachment{attachments.length !== 1 ? 's' : ''}
+          </div>
+          <div class=".flex .flex-wrap .gap-2">
+            {#each attachments as attachment}
+              <a
+                href={`${API_URL}/emails/attachment/${attachment.id}`}
+                target="_blank"
+                class=".flex .items-center .gap-2 .rounded-md .border .border-gray-200 .bg-gray-50 .px-3 .py-2 .text-sm .text-gray-700 hover:.bg-gray-100"
+              >
+                <span class=".max-w-[200px] .truncate"
+                  >{attachment.filename}</span
+                >
+                <span class=".text-xs .text-gray-500"
+                  >({Math.round((attachment.size || 0) / 1024)} KB)</span
+                >
+                <DownloadSVG class=".h-4 .w-4 .text-gray-400" />
+              </a>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      <div class=".prose .max-w-none .text-gray-800">
+        {@html email.content}
+      </div>
+    </div>
   {:else}
-    <span class="text-gray-500">Select an email to view its content.</span>
+    <div
+      class=".flex .h-full .flex-col .items-center .justify-center .text-gray-500"
+    >
+      <div class=".mb-4 .rounded-full .bg-gray-100 .p-6">
+        <PaperclipSVG class=".h-12 .w-12 .text-gray-400" />
+      </div>
+      <p class=".text-lg .font-medium">Select an email to view its content</p>
+    </div>
   {/if}
 </div>

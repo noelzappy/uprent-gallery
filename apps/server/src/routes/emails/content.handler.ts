@@ -148,7 +148,7 @@ export const fetchEmailContentHandler = new Elysia()
         )
       `,
         )
-        .get(uid) as EmailAttachmentDBRecord[] | undefined
+        .all(uid) as EmailAttachmentDBRecord[] | undefined
 
       if (!result) {
         return res.notFound('Email not found')
@@ -160,5 +160,26 @@ export const fetchEmailContentHandler = new Elysia()
     {
       response: res(attachmentResDTO),
       params: reqParamsDTO,
+    },
+  )
+  .get(
+    '/emails/attachment/:id',
+    async ({ res, params, db }) => {
+      const { id } = params
+
+      const attachment = db
+        .query('SELECT * FROM attachments WHERE id = ?')
+        .get(id) as EmailAttachmentDBRecord | undefined
+
+      if (!attachment || !attachment.storagePath) {
+        return res.notFound('Attachment not found')
+      }
+
+      return Bun.file(attachment.storagePath)
+    },
+    {
+      params: t.Object({
+        id: t.Number(),
+      }),
     },
   )
