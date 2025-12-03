@@ -203,7 +203,6 @@ async function processEmailChunk(
 }
 
 export async function initSyncAll() {
-  console.log('Starting full email sync...')
   try {
     const allEmailAccountsCount = db
       .query('SELECT COUNT(*) as count FROM email_accounts')

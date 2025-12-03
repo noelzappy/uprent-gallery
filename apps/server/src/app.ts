@@ -18,7 +18,6 @@ const app = new Elysia()
 
     worker.postMessage('sync')
 
-    // Sync emails every 10 minutes
     setInterval(
       () => {
         worker.postMessage('sync')
