@@ -1,31 +1,27 @@
-import { type Email, type EmailHeader } from '~core/database'
+import { type Email } from '~core/database'
+
+type EmailHeader = Omit<Email, 'content'>
 
 type EmailsState = {
-  emailHeaders: EmailHeader[]
+  emailHeaders: Record<number, EmailHeader>
   activeEmailHeader?: EmailHeader
   cachedEmailContents: Record<number, Email>
 }
 
 const createEmailsState = () => {
   let state = $state<EmailsState>({
-    emailHeaders: [],
+    emailHeaders: {},
     cachedEmailContents: {},
   })
 
   return {
-    set emailHeaders(data: EmailHeader[]) {
-      const merged = [...state.emailHeaders, ...data]
-      const uniqueHeadersMap = new Map<number, EmailHeader>()
-      for (const header of merged) {
-        uniqueHeadersMap.set(header.uid, header)
+    set emailHeaders(data: Record<number, EmailHeader>) {
+      state.emailHeaders = data
+    },
+    addHeaders(data: EmailHeader[]) {
+      for (const header of data) {
+        state.emailHeaders[header.uid] = header
       }
-
-      const sortedHeaders = Array.from(uniqueHeadersMap.values())
-      sortedHeaders.sort((a, b) => {
-        return new Date(b.datetime).getTime() - new Date(a.datetime).getTime()
-      })
-
-      state.emailHeaders = sortedHeaders
     },
     set activeEmailHeader(data: EmailHeader | undefined) {
       state.activeEmailHeader = data

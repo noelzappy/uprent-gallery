@@ -23,7 +23,7 @@
     const { data, error } = await api.emails.load.get({
       query: {
         cursor: paging.cursor,
-        limit: 10,
+        limit: 5,
       },
     })
 
@@ -34,15 +34,21 @@
       return
     }
 
-    emailsState.emailHeaders = data.payload.emails
+    emailsState.addHeaders(data.payload.emails)
     paging = data.payload.paging
   }
+
+  let sortedHeaders = $derived(
+    Object.values(emailsState.emailHeaders).sort((a, b) => {
+      return new Date(b.datetime).getTime() - new Date(a.datetime).getTime()
+    }),
+  )
 </script>
 
 <div
   class=".absolute .inset-0 .mx-auto .flex .max-w-7xl .flex-col .overflow-hidden sm:.pb-16"
 >
-  {#if loading && emailsState.emailHeaders.length === 0}
+  {#if loading && sortedHeaders.length === 0}
     <div class=".flex .h-20 .items-center .justify-center .text-gray-500">
       <div class=".flex .items-center .gap-2">
         <LoadingSpinnerSVG class=".h-4 .w-4 .shrink-0 .text-primary" />
@@ -77,7 +83,7 @@
         class=".flex .w-1/3 .min-w-[320px] .flex-col .border-r .border-gray-200"
       >
         <div class=".flex-1 .overflow-y-auto">
-          {#each emailsState.emailHeaders as header}
+          {#each sortedHeaders as header}
             <EmailHeader {header} />
           {/each}
           <PaginationBtn {paging} loadMore={onLoadEmailHeaders} {loading} />

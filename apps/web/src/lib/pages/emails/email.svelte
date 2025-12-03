@@ -11,12 +11,12 @@
   let loadingError = $state<string | null>(null)
   let currentlyLoadingUid = $state<number | null>(null)
 
-  const fetchActiveEmailContent = async (emailHeader: Email) => {
-    if (currentlyLoadingUid === emailHeader.uid) {
+  const fetchActiveEmailContent = async (emailUid: number) => {
+    if (currentlyLoadingUid === emailUid) {
       return
     }
 
-    const cached = emailsState.cachedEmailContents[emailHeader.uid]
+    const cached = emailsState.cachedEmailContents[emailUid]
     if (cached) {
       email = cached
       loadingEmailContent = false
@@ -24,16 +24,14 @@
       return
     }
 
-    currentlyLoadingUid = emailHeader.uid
+    currentlyLoadingUid = emailUid
     email = null
     loadingEmailContent = true
     loadingError = null
 
-    const { data, error } = await api.emails
-      .content({ uid: emailHeader.uid })
-      .get()
+    const { data, error } = await api.emails.content({ uid: emailUid }).get()
 
-    if (currentlyLoadingUid !== emailHeader.uid) {
+    if (currentlyLoadingUid !== emailUid) {
       return
     }
 
@@ -48,13 +46,32 @@
 
     email = data?.payload?.email ?? null
     if (email) {
-      emailsState.cachedEmailContents[emailHeader.uid] = email
+      emailsState.cachedEmailContents[emailUid] = {
+        ...email,
+        seen: true,
+      }
     }
+    await markEmailAsSeen(emailUid)
+  }
+
+  const markEmailAsSeen = async (emailUid: number) => {
+    emailsState.cachedEmailContents[emailUid] = {
+      ...emailsState.cachedEmailContents[emailUid],
+      seen: true,
+    }
+    if (emailsState.emailHeaders[emailUid]) {
+      emailsState.emailHeaders[emailUid] = {
+        ...emailsState.emailHeaders[emailUid],
+        seen: true,
+      }
+    }
+
+    await api.emails.actions({ id: emailUid }).seen.post()
   }
 
   $effect(() => {
     if (activeEmailHeader) {
-      fetchActiveEmailContent(activeEmailHeader)
+      fetchActiveEmailContent(activeEmailHeader.uid)
     } else {
       email = null
       loadingEmailContent = false

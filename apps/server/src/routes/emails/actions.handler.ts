@@ -10,7 +10,7 @@ export const emailActionsHandler = new Elysia()
   .use(statePlugin)
   .use(corePlugin)
   .post(
-    '/emails/:id/seen',
+    '/emails/actions/:id/seen',
     async ({ params, emailWorker }) => {
       const { id } = params
       emailWorker.postMessage({ type: 'markAsSeen', payload: { emailId: id } })
@@ -31,7 +31,7 @@ export const emailActionsHandler = new Elysia()
     { params: paramsDTO },
   )
   .delete(
-    '/emails/:id',
+    '/emails/actions/:id',
     async ({ params, emailWorker }) => {
       const { id } = params
       emailWorker.postMessage({ type: 'deleteEmail', payload: { emailId: id } })

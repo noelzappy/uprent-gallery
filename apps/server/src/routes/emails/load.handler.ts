@@ -28,6 +28,18 @@ const emailHeadersResDTO = t.Object({
       inReplyTo: t.Optional(t.String()),
       references: t.Optional(t.Array(t.String())),
       flags: t.Array(t.String()),
+      attachments: t.Optional(
+        t.Array(
+          t.Object({
+            uid: t.Number(),
+            contentType: t.String(),
+            filename: t.Optional(t.String()),
+            size: t.Number(),
+            contentId: t.Optional(t.String()),
+            related: t.Optional(t.Boolean()),
+          }),
+        ),
+      ),
     }),
   ),
   paging: t.Object({
@@ -44,14 +56,7 @@ const emailReqQueryDTO = t.Object({
 export const loadEmailsHandler = new Elysia()
   .use(statePlugin)
   .use(corePlugin)
-  .post('/emails/sync', async ({ emailWorker, db }) => {
-    // Should ideally come from authenticated user context
-    const emailUserName = Bun.env.EMAIL_USERNAME!
 
-    emailWorker.postMessage({ type: 'sync', payload: { emailUserName } })
-
-    return { success: true }
-  })
   .get(
     '/emails/load',
     async ({ res, query, db }) => {
@@ -67,7 +72,7 @@ export const loadEmailsHandler = new Elysia()
         .query(
           `
       SELECT 
-        id, imapUid, categoriesJson, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson,
+        id, imapUid, categoriesJson, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson,
         COUNT(*) OVER() as totalCount
       FROM emails 
       WHERE emailAddress = ?
@@ -106,6 +111,7 @@ export const loadEmailsHandler = new Elysia()
           inReplyTo: row.inReplyTo || undefined,
           references: row.refs ? (JSON.parse(row.refs) as string[]) : undefined,
           flags: row.flagsJson ? (JSON.parse(row.flagsJson) as string[]) : [],
+          attachments: row.attachmentJson ? JSON.parse(row.attachmentJson) : [],
         })),
         paging: {
           cursor: offset + result.length,
@@ -115,3 +121,11 @@ export const loadEmailsHandler = new Elysia()
     },
     { response: res(emailHeadersResDTO), query: emailReqQueryDTO },
   )
+  .post('/emails/sync', async ({ emailWorker, db }) => {
+    // Should ideally come from authenticated user context
+    const emailUserName = Bun.env.EMAIL_USERNAME!
+
+    emailWorker.postMessage({ type: 'sync', payload: { emailUserName } })
+
+    return { success: true }
+  })
