@@ -161,7 +161,17 @@
             </div>
           {/if}
 
-          <!-- Additional Details -->
+          <div>
+            <h4 class=".mb-2 .font-semibold .text-gray-900">
+              Financial Details
+            </h4>
+            <p class=".text-sm .leading-relaxed .text-gray-600">
+              {property.extraFields?.minIncomeRequirementDoubleAnnual
+                ? `Minimum Income Requirement: € ${property.extraFields.minIncomeRequirementDoubleAnnual / 2} per month (€ ${property.extraFields.minIncomeRequirementDoubleAnnual} annually).`
+                : 'No minimum income requirement specified.'}
+            </p>
+          </div>
+
           <div class=".space-y-3">
             <h4 class=".font-semibold .text-gray-900">Details</h4>
 
@@ -200,15 +210,17 @@
               </div>
             {/if}
 
-            <div class=".flex .items-center .justify-between .text-sm">
-              <div class=".flex .items-center .gap-2 .text-gray-600">
-                <PawSVG class=".h-4 .w-4" />
-                <span>Pets</span>
+            {#if property.extraFields?.petsAllowed}
+              <div class=".flex .items-center .justify-between .text-sm">
+                <div class=".flex .items-center .gap-2 .text-gray-600">
+                  <PawSVG class=".h-4 .w-4" />
+                  <span>Pets</span>
+                </div>
+                <span class=".font-medium .capitalize .text-gray-900"
+                  >{property.extraFields?.petsAllowed}</span
+                >
               </div>
-              <span class=".font-medium .capitalize .text-gray-900"
-                >{property.extraFields?.petsAllowed}</span
-              >
-            </div>
+            {/if}
           </div>
         </div>
       </div>
