@@ -142,9 +142,9 @@ export async function initSyncAll() {
         .query('SELECT * FROM email_accounts LIMIT ? OFFSET ?')
         .all(limit, offset) as ImapAccount[]
 
-      for (const emailAccount of emailAccounts) {
-        syncEmailAccount(emailAccount.id)
-      }
+      await Promise.all(
+        emailAccounts.map(emailAccount => syncEmailAccount(emailAccount.id)),
+      )
 
       offset += limit
     }
