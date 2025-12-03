@@ -418,16 +418,23 @@ export class EmailServer {
   }
 
   private async connect(params: ConnectionParams): Promise<Imap> {
-    if (
-      this.connectionPool[params.username] &&
-      this.connectionPool[params.username].state === 'authenticated'
-    ) {
-      this.resetInactivityTimeout(params.username)
-      return this.connectionPool[params.username]
+    const existingImap = this.connectionPool[params.username]
+
+    if (existingImap) {
+      if (existingImap.state === 'authenticated') {
+        this.resetInactivityTimeout(params.username)
+        return existingImap
+      }
+
+      try {
+        existingImap.destroy()
+      } catch {}
+      delete this.connectionPool[params.username]
     }
 
     const imap = await this.createImap(params)
     this.connectionPool[params.username] = imap
+    this.resetInactivityTimeout(params.username)
     return imap
   }
 
@@ -441,9 +448,38 @@ export class EmailServer {
         tls: true,
         authTimeout: 10000,
         connTimeout: 10000,
+        keepalive: true,
       })
-      imap.once('ready', () => resolve(imap))
-      imap.once('error', reject)
+
+      const cleanup = () => {
+        if (this.connectionPool[params.username] === imap) {
+          delete this.connectionPool[params.username]
+        }
+        if (this.connectionTimeouts[params.username]) {
+          clearTimeout(this.connectionTimeouts[params.username])
+          delete this.connectionTimeouts[params.username]
+        }
+      }
+
+      imap.once('ready', () => {
+        imap.removeAllListeners('error')
+
+        imap.on('error', (err: Error) => {
+          console.error(`IMAP connection error for ${params.username}:`, err)
+          cleanup()
+        })
+
+        imap.on('close', () => cleanup())
+        imap.on('end', () => cleanup())
+
+        resolve(imap)
+      })
+
+      imap.once('error', (err: Error) => {
+        cleanup()
+        reject(err)
+      })
+
       imap.connect()
     })
   }
