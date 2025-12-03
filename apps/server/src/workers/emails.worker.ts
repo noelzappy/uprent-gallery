@@ -179,7 +179,7 @@ async function processEmailChunk(
           for (const att of attachments) {
             db.query(
               `
-          INSERT INTO attachments
+          INSERT INTO OR REPLACE attachments
           (emailId, partId, filename, mimeType, size, storagePath)
           VALUES ( ?, ?, ?, ?, ?, ? )
         `,
