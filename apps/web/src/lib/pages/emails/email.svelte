@@ -1,6 +1,12 @@
 <script lang="ts">
   import { emailsState } from '$lib/shared/state'
-  import { TrashSVG, EyeOffSVG, PaperclipSVG, DownloadSVG } from '~ui/assets'
+  import {
+    TrashSVG,
+    EyeOffSVG,
+    PaperclipSVG,
+    DownloadSVG,
+    EyeSVG,
+  } from '~ui/assets'
   import dayjs from 'dayjs'
   import api, { API_URL } from '~api'
   import type { Email } from '~core/database'
@@ -143,10 +149,19 @@
       <div class=".flex .items-center .gap-2">
         <button
           class=".flex .items-center .gap-2 .rounded-md .px-3 .py-1.5 .text-sm .font-medium .text-gray-700 hover:.bg-gray-100"
-          onclick={() => email && markEmailAsUnseen(email.uid)}
+          onclick={() => {
+            email &&
+              (email.seen
+                ? markEmailAsUnseen(email.uid)
+                : markEmailAsSeen(email.uid))
+          }}
           title="Mark as Unseen"
         >
-          <EyeOffSVG class=".h-4 .w-4" />
+          {#if email.seen}
+            <EyeOffSVG class=".h-4 .w-4" />
+          {:else}
+            <EyeSVG class=".h-4 .w-4" />
+          {/if}
           <span class=".hidden sm:.inline">Mark Unseen</span>
         </button>
         <button
