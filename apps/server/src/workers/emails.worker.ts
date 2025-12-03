@@ -47,13 +47,19 @@ async function syncEmailAccount(accountId: number) {
       uid => !lastSyncedUidRow?.maxUid || uid > lastSyncedUidRow.maxUid,
     )
 
+    if (uidsToFetch.length === 0) {
+      console.log(
+        `No new emails to sync for account ${emailAccount.emailAddress}.`,
+      )
+      return
+    }
+
+    console.log(
+      `Syncing ${uidsToFetch.length} new emails for account ${emailAccount.emailAddress}...`,
+    )
+
     const emails = await emailServer.loadEmails(connectionParams, uidsToFetch)
     for (const email of emails) {
-      console.log(
-        `Saving email UID ${email.uid} - Subject: ${email.subject}`,
-        JSON.stringify(email, null, 2),
-      )
-
       const savedEmail = db
         .query<{ id: number }, any[]>(
           `
@@ -100,8 +106,6 @@ async function syncEmailAccount(accountId: number) {
           emailUid: email.uid,
           attachment: att,
         })
-
-        console.log('Attachment saved to:', path)
 
         db.query(
           `
