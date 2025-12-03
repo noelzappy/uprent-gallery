@@ -1,6 +1,6 @@
 <script lang="ts">
   import { emailsState } from '$lib/shared/state'
-  import { LoadingSpinnerSVG, AlertTriangleSVG } from '~ui/assets'
+  import { LoadingSpinnerSVG, AlertTriangleSVG, EmailSVG } from '~ui/assets'
   import { onMount } from 'svelte'
   import api from '~api'
   import EmailHeader from './email-header.svelte'
@@ -33,9 +33,14 @@
       emailError = error.value?.message || 'An unknown error occurred.'
       return
     }
-
+    emailError = null
     emailsState.addHeaders(data.payload.emails)
     paging = data.payload.paging
+  }
+
+  const syncEmails = async () => {
+    await api.emails.sync.post()
+    await onLoadEmailHeaders()
   }
 
   let sortedHeaders = $derived(
@@ -73,6 +78,27 @@
         class=".hover:bg-primary/90 .focus:outline-none .focus:ring-2 .focus:ring-primary .focus:ring-offset-2 .rounded-md .bg-primary .px-4 .py-2 .text-sm .font-medium .text-white .shadow-sm"
       >
         Try Again
+      </button>
+    </div>
+  {:else if sortedHeaders.length === 0}
+    <div
+      class=".flex .h-full .flex-col .items-center .justify-center .gap-4 .p-8 .text-center"
+    >
+      <div class=".rounded-full .bg-gray-100 .p-3">
+        <EmailSVG />
+      </div>
+      <div class=".max-w-md">
+        <h3 class=".text-lg .font-medium .text-gray-900">No Emails</h3>
+        <p class=".mt-1 .text-sm .text-gray-500">
+          You have no emails at the moment. Please check back later.
+        </p>
+      </div>
+
+      <button
+        onclick={syncEmails}
+        class=".hover:bg-primary/90 .focus:outline-none .focus:ring-2 .focus:ring-primary .focus:ring-offset-2 .rounded-md .bg-primary .px-4 .py-2 .text-sm .font-medium .text-white .shadow-sm"
+      >
+        Fetch Emails
       </button>
     </div>
   {:else}
