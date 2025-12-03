@@ -13,18 +13,21 @@ export const emailActionsHandler = new Elysia()
     '/emails/actions/:id/seen',
     async ({ params, emailWorker }) => {
       const { id } = params
-      emailWorker.postMessage({ type: 'markAsSeen', payload: { emailId: id } })
+      emailWorker.postMessage({
+        type: 'markAsSeen',
+        payload: { emailUid: id },
+      })
       return { success: true }
     },
     { params: paramsDTO },
   )
   .delete(
-    '/emails/:id/seen',
+    '/emails/actions/:id/seen',
     async ({ params, emailWorker }) => {
       const { id } = params
       emailWorker.postMessage({
         type: 'markAsUnseen',
-        payload: { emailId: id },
+        payload: { emailUid: id },
       })
       return { success: true }
     },
@@ -34,7 +37,10 @@ export const emailActionsHandler = new Elysia()
     '/emails/actions/:id',
     async ({ params, emailWorker }) => {
       const { id } = params
-      emailWorker.postMessage({ type: 'deleteEmail', payload: { emailId: id } })
+      emailWorker.postMessage({
+        type: 'deleteEmail',
+        payload: { emailUid: id },
+      })
       return { success: true }
     },
     { params: paramsDTO },

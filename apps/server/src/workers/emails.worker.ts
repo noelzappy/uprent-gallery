@@ -152,8 +152,10 @@ export async function initSyncAll() {
   }
 }
 
-async function getConnectionParams(emailId: number) {
-  const email = db.query('SELECT * FROM emails WHERE id = ?').get(emailId) as {
+async function getConnectionParams(emailUid: number) {
+  const email = db
+    .query('SELECT * FROM emails WHERE imapUid = ?')
+    .get(emailUid) as {
     emailAccountId: number
     imapUid: number
   }
@@ -180,20 +182,21 @@ async function getConnectionParams(emailId: number) {
   }
 }
 
-async function markAsSeen(emailId: number) {
+async function markAsSeen(emailUid: number) {
   try {
-    const { connectionParams, imapUid } = await getConnectionParams(emailId)
+    const { connectionParams, imapUid } = await getConnectionParams(emailUid)
     await emailServer.markEmailAsSeen(connectionParams, imapUid)
 
     const email = db
-      .query('SELECT flagsJson FROM emails WHERE id = ?')
-      .get(emailId) as { flagsJson: string }
+      .query('SELECT flagsJson FROM emails WHERE imapUid = ?')
+      .get(emailUid) as { flagsJson: string }
+    if (!email) return
     const flags = JSON.parse(email.flagsJson) as string[]
     if (!flags.includes('\\Seen')) {
       flags.push('\\Seen')
-      db.query('UPDATE emails SET flagsJson = ? WHERE id = ?').run(
+      db.query('UPDATE emails SET flagsJson = ? WHERE imapUid = ?').run(
         JSON.stringify(flags),
-        emailId,
+        emailUid,
       )
     }
   } catch (error) {
@@ -201,31 +204,32 @@ async function markAsSeen(emailId: number) {
   }
 }
 
-async function markAsUnseen(emailId: number) {
+async function markAsUnseen(emailUid: number) {
   try {
-    const { connectionParams, imapUid } = await getConnectionParams(emailId)
+    const { connectionParams, imapUid } = await getConnectionParams(emailUid)
     await emailServer.markEmailAsUnseen(connectionParams, imapUid)
 
     const email = db
-      .query('SELECT flagsJson FROM emails WHERE id = ?')
-      .get(emailId) as { flagsJson: string }
+      .query('SELECT flagsJson FROM emails WHERE imapUid = ?')
+      .get(emailUid) as { flagsJson: string }
+    if (!email) return
     let flags = JSON.parse(email.flagsJson) as string[]
     flags = flags.filter(f => f !== '\\Seen')
-    db.query('UPDATE emails SET flagsJson = ? WHERE id = ?').run(
+    db.query('UPDATE emails SET flagsJson = ? WHERE imapUid = ?').run(
       JSON.stringify(flags),
-      emailId,
+      emailUid,
     )
   } catch (error) {
     console.error('Error marking email as unseen:', error)
   }
 }
 
-async function deleteEmail(emailId: number) {
+async function deleteEmail(emailUid: number) {
   try {
-    const { connectionParams, imapUid } = await getConnectionParams(emailId)
+    const { connectionParams, imapUid } = await getConnectionParams(emailUid)
     await emailServer.deleteEmail(connectionParams, imapUid)
 
-    db.query('DELETE FROM emails WHERE id = ?').run(emailId)
+    db.query('UPDATE emails SET deleted = 1 WHERE imapUid = ?').run(emailUid)
   } catch (error) {
     console.error('Error deleting email:', error)
   }
@@ -260,13 +264,13 @@ self.onmessage = async (event: MessageEvent) => {
       self.postMessage('done')
       break
     case 'markAsSeen':
-      if (payload?.emailId) await markAsSeen(payload.emailId)
+      if (payload?.emailUid) await markAsSeen(payload.emailUid)
       break
     case 'markAsUnseen':
-      if (payload?.emailId) await markAsUnseen(payload.emailId)
+      if (payload?.emailUid) await markAsUnseen(payload.emailUid)
       break
     case 'deleteEmail':
-      if (payload?.emailId) await deleteEmail(payload.emailId)
+      if (payload?.emailUid) await deleteEmail(payload.emailUid)
       break
   }
 }

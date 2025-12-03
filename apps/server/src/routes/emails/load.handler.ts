@@ -74,8 +74,8 @@ export const loadEmailsHandler = new Elysia()
       SELECT 
         id, imapUid, categoriesJson, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson,
         COUNT(*) OVER() as totalCount
-      FROM emails 
-      WHERE emailAddress = ?
+      FROM emails
+      WHERE deleted = 0 AND emailAddress = ?
       ORDER BY date DESC
       LIMIT ? OFFSET ?
     `,
