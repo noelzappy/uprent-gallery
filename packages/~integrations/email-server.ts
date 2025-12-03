@@ -19,11 +19,7 @@ type ConnectionParams = {
 export class EmailServer {
   private connectionPool: Record<string, Imap> = {}
   private connectionTimeouts: Record<string, ReturnType<typeof setTimeout>> = {}
-  private attachmentsBasePath: string
-
-  constructor(attachmentsBasePath: string = './storage/attachments') {
-    this.attachmentsBasePath = attachmentsBasePath
-  }
+  private attachmentsBasePath: string = './storage/attachments'
 
   async loadEmails(
     connectionParams: ConnectionParams,
@@ -45,61 +41,16 @@ export class EmailServer {
 
   async getInboxStats(
     connectionParams: ConnectionParams,
-  ): Promise<{ total: number; unseen: number }> {
+  ): Promise<{ total: number; UIDs: number[] }> {
     const { imap, box } = await this.connectAndOpenBox(
       connectionParams,
       'INBOX',
     )
 
     const total = box.messages.total
-    const unseenCriteria = ['UNSEEN']
-    const unseenUids = await this.search(imap, unseenCriteria)
-    const unseen = unseenUids.length
+    const allUIDs = await this.search(imap, ['ALL'])
 
-    return { total, unseen }
-  }
-
-  async getUIDs(
-    connectionParams: ConnectionParams,
-    count: number,
-    lastUID?: number,
-  ): Promise<number[]> {
-    const { imap, box } = await this.connectAndOpenBox(
-      connectionParams,
-      'INBOX',
-    )
-
-    if (box.messages.total === 0) {
-      return []
-    }
-
-    const total = box.messages.total
-    const end = lastUID ? lastUID - 1 : total
-    const start = Math.max(end - count + 1, 1)
-
-    const uids: number[] = await new Promise((resolve, reject) => {
-      const fetch = imap.seq.fetch(`${start}:${end}`, {
-        bodies: [],
-      })
-
-      const uidList: number[] = []
-
-      fetch.on('message', msg => {
-        msg.once('attributes', attrs => {
-          uidList.push(attrs.uid)
-        })
-      })
-
-      fetch.once('error', err => {
-        reject(err)
-      })
-
-      fetch.once('end', () => {
-        resolve(uidList)
-      })
-    })
-
-    return uids
+    return { total, UIDs: allUIDs }
   }
 
   private async fetchAndParseEmails(
@@ -515,4 +466,4 @@ export class EmailServer {
   }
 }
 
-export const emailServer = new EmailServer('./storage/attachments')
+export const emailServer = new EmailServer()

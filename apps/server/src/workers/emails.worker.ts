@@ -14,12 +14,9 @@ async function syncEmailAccount(accountId: number) {
     }
 
     const lastSyncedUidRow = db
-      .query<
-        { maxUid: number | null; minUid: number | null },
-        [ImapAccount['id'], string]
-      >(
+      .query<{ maxUid: number | null }, [ImapAccount['id'], string]>(
         `
-        SELECT MIN(imapUid) as minUid, MAX(imapUid) as maxUid
+        SELECT MAX(imapUid) as maxUid
         FROM emails
         WHERE emailAccountId = ? AND mailbox = ?
       `,
@@ -44,14 +41,19 @@ async function syncEmailAccount(accountId: number) {
       port: emailAccount.imapPort,
     }
 
-    const uids = await emailServer.getUIDs(
-      connectionParams,
-      10,
-      lastSyncedUidRow?.minUid || undefined,
+    const { UIDs } = await emailServer.getInboxStats(connectionParams)
+
+    const uidsToFetch = UIDs.filter(
+      uid => !lastSyncedUidRow?.maxUid || uid > lastSyncedUidRow.maxUid,
     )
 
-    const emails = await emailServer.loadEmails(connectionParams, uids)
+    const emails = await emailServer.loadEmails(connectionParams, uidsToFetch)
     for (const email of emails) {
+      console.log(
+        `Saving email UID ${email.uid} - Subject: ${email.subject}`,
+        JSON.stringify(email, null, 2),
+      )
+
       const savedEmail = db
         .query<{ id: number }, any[]>(
           `
@@ -87,7 +89,7 @@ async function syncEmailAccount(accountId: number) {
       db.query(
         `
         UPDATE emails
-        SET bodyPlain = ?, bodyHtml = ?
+        SET bodyHtml = ?
         WHERE id = ?
       `,
       ).run(body || null, savedEmail.lastInsertRowid)
@@ -105,10 +107,7 @@ async function syncEmailAccount(accountId: number) {
           `
           INSERT INTO attachments
           (emailId, partId, filename, mimeType, size, storagePath)
-          VALUES (
-            (SELECT id FROM emails WHERE emailAccountId = ? AND mailbox = 'INBOX' AND imapUid = ?),
-            ?, ?, ?, ?, ?
-          )
+          VALUES ( ?, ?, ?, ?, ?, ? )
         `,
         ).run(
           savedEmail.lastInsertRowid,
