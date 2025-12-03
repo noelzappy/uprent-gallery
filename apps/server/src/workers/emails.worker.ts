@@ -23,11 +23,6 @@ async function syncEmailAccount(accountId: number) {
       )
       .get(emailAccount.id, 'INBOX')
 
-    console.log(
-      `Last synced UIDs for account ${emailAccount.emailAddress}:`,
-      lastSyncedUidRow,
-    )
-
     const passwordDecryptionKey = await importEncryptionKey(
       Bun.env.ENCRYPTION_KEY!,
     )

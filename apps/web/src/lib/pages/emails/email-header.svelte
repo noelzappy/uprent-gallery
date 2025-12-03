@@ -1,9 +1,9 @@
 <script lang="ts">
   import { emailsState } from '$lib/shared/state'
   import dayjs from 'dayjs'
-  import type { EmailHeader } from '~core/database'
+  import type { Email } from '~core/database'
 
-  let { header }: { header: EmailHeader } = $props()
+  let { header }: { header: Email } = $props()
 
   const onSelectHeader = () => {
     emailsState.activeEmailHeader = header

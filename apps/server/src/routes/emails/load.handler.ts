@@ -1,6 +1,6 @@
 import { t, Elysia } from 'elysia'
 import { corePlugin, res } from '@/plugins'
-import { Email, EMAIL_CATEGORY } from '~core/database'
+import { EMAIL_CATEGORY } from '~core/database'
 import { EmailDBRecord } from '~core/database/data-types/email'
 import db from '@/database/db'
 
@@ -8,6 +8,7 @@ const emailHeadersResDTO = t.Object({
   emails: t.Array(
     t.Object({
       id: t.Number(),
+      seen: t.Boolean(),
       uid: t.Number(),
       categories: t.Optional(t.Array(t.Enum(EMAIL_CATEGORY))),
       messageId: t.String(),
@@ -48,23 +49,35 @@ export const loadEmailsHandler = new Elysia().use(corePlugin).get(
     // Idealy, this should come from authenticated user context
     const emailUserName = Bun.env.EMAIL_USERNAME!
 
+    const pageSize = limit || 20
+    const offset = cursor || 0
+
     const result = db
       .query(
         `
-      SELECT id, imapUid, categoriesJson, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson
-      FROM emails WHERE emailAddress = ?
+      SELECT 
+        id, imapUid, categoriesJson, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson,
+        COUNT(*) OVER() as totalCount
+      FROM emails 
+      WHERE emailAddress = ?
       ORDER BY date DESC
       LIMIT ? OFFSET ?
     `,
       )
-      .all(emailUserName, limit || 20, cursor || 0) as EmailDBRecord[]
+      .all(emailUserName, pageSize, offset) as (EmailDBRecord & {
+      totalCount: number
+    })[]
 
-    console.log(`Loaded ${result.length} email headers from DB`)
+    const totalEmails = result.length > 0 ? result[0].totalCount : 0
+    const hasMore = offset + pageSize < totalEmails
 
     return res.ok({
       emails: result.map(row => ({
         id: row.id,
         uid: row.imapUid,
+        seen: row.flagsJson
+          ? (JSON.parse(row.flagsJson) as string[]).includes('\\Seen')
+          : false,
         categories: row.categoriesJson
           ? (JSON.parse(row.categoriesJson) as EMAIL_CATEGORY[])
           : undefined,
@@ -84,8 +97,8 @@ export const loadEmailsHandler = new Elysia().use(corePlugin).get(
         flags: row.flagsJson ? (JSON.parse(row.flagsJson) as string[]) : [],
       })),
       paging: {
-        cursor: (cursor || 0) + (limit || 20),
-        hasMore: false,
+        cursor: offset + result.length,
+        hasMore,
       },
     })
   },
