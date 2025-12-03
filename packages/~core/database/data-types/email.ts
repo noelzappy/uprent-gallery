@@ -37,9 +37,9 @@ export interface EmailCursorResponse {
 
 export interface ImapAccount {
   id: number
-  email_address: string
-  imap_host: string
-  imap_port: number
+  emailAddress: string
+  imapHost: string
+  imapPort: number
   username: string
   password: string
 }

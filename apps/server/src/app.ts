@@ -1,10 +1,11 @@
 import { Elysia } from 'elysia'
 import { emailsRoute, propertiesRoute } from './routes'
-import { initDatabase } from './database/setup-db'
+import { initDatabase, seedDatabase } from './database/setup-db'
 import { initSyncAll } from './workers/emails.worker'
 import db from './database/db'
 
 initDatabase(db)
+await seedDatabase(db)
 
 const app = new Elysia()
   .use(emailsRoute)
@@ -14,20 +15,22 @@ const app = new Elysia()
     console.debug(`Server is running at ${server.hostname}:${server.port}`)
 
     try {
-      initSyncAll()
+      await initSyncAll()
     } catch (error) {
-      //
+      console.error('[App] Initial email sync failed:', error)
     }
-    // setInterval(
-    //   async () => {
-    //     try {
-    //       await initSyncAll()
-    //     } catch (error) {
-    //       //
-    //     }
-    //   },
-    //   15 * 60 * 1000,
-    // )
+
+    // Sync emails every 10 minutes
+    setInterval(
+      async () => {
+        try {
+          await initSyncAll()
+        } catch (error) {
+          console.error('[App] Email sync failed:', error)
+        }
+      },
+      10 * 60 * 1000,
+    )
   })
   .decorate('db', db)
 

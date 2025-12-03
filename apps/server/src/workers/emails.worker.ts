@@ -26,6 +26,11 @@ async function syncEmailAccount(accountId: number) {
       )
       .get(emailAccount.id, 'INBOX')
 
+    console.log(
+      `Last synced UIDs for account ${emailAccount.emailAddress}:`,
+      lastSyncedUidRow,
+    )
+
     const passwordDecryptionKey = await importEncryptionKey(
       Bun.env.ENCRYPTION_KEY!,
     )
@@ -35,14 +40,14 @@ async function syncEmailAccount(accountId: number) {
     const connectionParams = {
       username: emailAccount.username,
       password,
-      host: emailAccount.imap_host,
-      port: emailAccount.imap_port,
+      host: emailAccount.imapHost,
+      port: emailAccount.imapPort,
     }
 
     const uids = await emailServer.getUIDs(
       connectionParams,
       10,
-      // lastSyncedUidRow?.minUid || undefined,
+      lastSyncedUidRow?.minUid || undefined,
     )
 
     const emails = await emailServer.loadEmails(connectionParams, uids)
@@ -58,7 +63,7 @@ async function syncEmailAccount(accountId: number) {
         )
         .run([
           emailAccount.id,
-          emailAccount.email_address,
+          emailAccount.emailAddress,
           'INBOX',
           email.uid,
           email.messageId,
@@ -121,14 +126,10 @@ async function syncEmailAccount(accountId: number) {
 }
 
 export async function initSyncAll() {
-  console.log('Starting email sync worker...')
-
   try {
     const allEmailAccountsCount = db
       .query('SELECT COUNT(*) as count FROM email_accounts')
       .get() as { count: number }
-
-    console.log(`Found ${allEmailAccountsCount.count} email accounts to sync.`)
 
     if (allEmailAccountsCount.count === 0) {
       console.log('No email accounts to sync.')
