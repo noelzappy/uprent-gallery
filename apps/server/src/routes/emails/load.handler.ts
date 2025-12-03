@@ -1,8 +1,8 @@
 import { t, Elysia } from 'elysia'
 import { corePlugin, res } from '@/plugins'
 import { Email, EMAIL_CATEGORY } from '~core/database'
-import db from '@/db/setup-db'
 import { EmailDBRecord } from '~core/database/data-types/email'
+import db from '@/database/db'
 
 const emailHeadersResDTO = t.Object({
   emails: t.Array(
@@ -51,7 +51,7 @@ export const loadEmailsHandler = new Elysia().use(corePlugin).get(
     const result = db
       .query(
         `
-      SELECT id, imap_uid, categories_json, message_id, date, subject, from_name, from_email, to_json, cc_json, in_reply_to, refs, flags_json
+      SELECT id, imapUid, categoriesJson, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson
       FROM emails
       ORDER BY date DESC
       LIMIT ? OFFSET ?

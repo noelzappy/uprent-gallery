@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { encrypt, importEncryptionKey } from '~utils'
 
-const initDatabase = (db: Database) => {
+export const initDatabase = (db: Database) => {
   db.run(`
     PRAGMA journal_mode = WAL;
     
@@ -67,10 +67,7 @@ const initDatabase = (db: Database) => {
     `)
 }
 
-const db = new Database('./mail.db')
-initDatabase(db)
-
-const seedDatabase = async () => {
+export const seedDatabase = async (db: Database) => {
   const insertAccount = db.prepare(`
     INSERT INTO email_accounts (emailAddress, imapHost, imapPort, username, password)
     VALUES (?, ?, ?, ?, ?)
@@ -99,10 +96,3 @@ const seedDatabase = async () => {
     console.log(`[DB] Seeded email account: ${Bun.env.EMAIL_USERNAME}`)
   }
 }
-
-if (Bun.env.EMAIL_USERNAME && Bun.env.EMAIL_PASSWORD) {
-  seedDatabase()
-}
-
-export { initDatabase }
-export default db
