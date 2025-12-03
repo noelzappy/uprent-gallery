@@ -7,16 +7,18 @@ import { corePlugin } from './plugins'
 initDatabase(db)
 await seedDatabase(db)
 
+const worker = new Worker(
+  new URL('./workers/emails.worker.ts', import.meta.url).href,
+)
+
 const app = new Elysia()
+  .decorate('db', db)
+  .decorate('emailWorker', worker)
   .use(emailsRoute)
   .use(propertiesRoute)
   .use(corePlugin)
   .listen({ hostname: '::', port: 5002 }, async server => {
     console.debug(`Server is running at ${server.hostname}:${server.port}`)
-
-    const worker = new Worker(
-      new URL('./workers/emails.worker.ts', import.meta.url).href,
-    )
 
     worker.postMessage('sync')
 
@@ -28,6 +30,5 @@ const app = new Elysia()
       10 * 60 * 1000,
     )
   })
-  .decorate('db', db)
 
 export type App = typeof app
