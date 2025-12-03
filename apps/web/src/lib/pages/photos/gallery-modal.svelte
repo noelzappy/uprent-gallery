@@ -10,9 +10,13 @@
     CoinEuroSVG,
     PawSVG,
     BoltSVG,
+    ExternalLinkSVG,
+    RocketSVG,
+    ThumbDownSVG,
   } from '~ui/assets'
   import type { BasePropertySchema } from '~core/database'
   import ImageCarousel from './image-carousel.svelte'
+  import api from '~api'
 
   let {
     onClose,
@@ -24,10 +28,25 @@
     onClose: () => void
   } = $props()
 
+  let loadingStates = $state<{ [key: string]: boolean }>({})
   let activeImageIndex = $state<number | null>(null)
 
   function close() {
     onClose()
+  }
+
+  const onApply = async () => {
+    loadingStates['apply'] = true
+    await api.properties.autoApply.post()
+    loadingStates['apply'] = false
+    close()
+  }
+
+  const onNotInterested = async () => {
+    loadingStates['notInterested'] = true
+    await api.properties.markAsNotInterested.post()
+    loadingStates['notInterested'] = false
+    close()
   }
 </script>
 
@@ -39,9 +58,29 @@
       </h2>
       <div class=".flex .items-center .gap-2">
         <Button
-          primary
-          onClick={() => window.open(property.sourceURL, '_blank')}>Open</Button
+          subtle
+          onClick={() => window.open(property.sourceURL, '_blank')}
+          className=".hidden sm:.flex"
         >
+          <ExternalLinkSVG slot="icon" />
+          Open
+        </Button>
+
+        <Button
+          subtle
+          onClick={onNotInterested}
+          loading={loadingStates['notInterested']}
+        >
+          <ThumbDownSVG slot="icon" />
+          Not interested
+        </Button>
+
+        <Button primary onClick={onApply} loading={loadingStates['apply']}>
+          <RocketSVG slot="icon" />
+          Apply
+        </Button>
+
+        <div class=".mx-2 .h-6 .w-px .bg-gray-200"></div>
 
         <button
           class=".rounded-full .p-2 hover:.bg-gray-100"
@@ -57,7 +96,10 @@
       <div class=".flex-1 .overflow-y-auto .p-4">
         {#if activeImageIndex !== null}
           <ImageCarousel
-            images={property.imageURLs}
+            images={property.imageURLs.map(url => ({
+              src: url,
+              sourceName: property.sourceName,
+            }))}
             activeIndex={activeImageIndex}
             onBack={() => (activeImageIndex = null)}
           />
@@ -222,6 +264,12 @@
               </div>
             {/if}
           </div>
+
+          <span
+            class=".absolute .bottom-2 .right-2 .rounded .bg-black/50 .px-2 .py-0.5 .text-xs .font-medium .text-white .backdrop-blur-sm"
+          >
+            Images are taken from {property.sourceName || 'various sources'}
+          </span>
         </div>
       </div>
     </div>

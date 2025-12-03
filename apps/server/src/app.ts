@@ -9,15 +9,13 @@ initDatabase(db)
 await seedDatabase(db)
 
 const app = new Elysia()
+  .use(corePlugin)
   .use(statePlugin)
   .use(emailsRoute)
   .use(propertiesRoute)
-  .use(corePlugin)
   .listen({ hostname: '::', port: 5002 }, async server => {
     console.debug(`Server is running at ${server.hostname}:${server.port}`)
-
     worker.postMessage('sync')
-
     setInterval(
       () => {
         worker.postMessage('sync')
