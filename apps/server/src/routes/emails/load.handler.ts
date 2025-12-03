@@ -52,16 +52,14 @@ export const loadEmailsHandler = new Elysia().use(corePlugin).get(
       .query(
         `
       SELECT id, imapUid, categoriesJson, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson
-      FROM emails
+      FROM emails WHERE emailAddress = ?
       ORDER BY date DESC
       LIMIT ? OFFSET ?
     `,
       )
-      .all(limit || 20, cursor || 0) as EmailDBRecord[]
+      .all(emailUserName, limit || 20, cursor || 0) as EmailDBRecord[]
 
     console.log(`Loaded ${result.length} email headers from DB`)
-
-    console.log(result)
 
     return res.ok({
       emails: result.map(row => ({
