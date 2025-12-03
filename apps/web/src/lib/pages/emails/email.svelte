@@ -3,6 +3,7 @@
   import dayjs from 'dayjs'
   import api from '~api'
   import type { Email } from '~core/database'
+  import type { EmailAttachmentDBRecord } from '~core/database/data-types/email'
 
   let email = $state<Email | null>(null)
 
@@ -10,6 +11,7 @@
   let loadingEmailContent = $state(false)
   let loadingError = $state<string | null>(null)
   let currentlyLoadingUid = $state<number | null>(null)
+  let attachments = $state<EmailAttachmentDBRecord[]>([])
 
   const fetchActiveEmailContent = async (emailUid: number) => {
     if (currentlyLoadingUid === emailUid) {
@@ -55,6 +57,7 @@
   }
 
   const markEmailAsSeen = async (emailUid: number) => {
+    await api.emails.actions({ id: emailUid }).seen.post()
     emailsState.cachedEmailContents[emailUid] = {
       ...emailsState.cachedEmailContents[emailUid],
       seen: true,
@@ -65,13 +68,54 @@
         seen: true,
       }
     }
+  }
 
-    await api.emails.actions({ id: emailUid }).seen.post()
+  const markEmailAsUnseen = async (emailUid: number) => {
+    await api.emails.actions({ id: emailUid }).seen.delete()
+    if (emailsState.cachedEmailContents[emailUid]) {
+      emailsState.cachedEmailContents[emailUid] = {
+        ...emailsState.cachedEmailContents[emailUid],
+        seen: false,
+      }
+    }
+    if (emailsState.emailHeaders[emailUid]) {
+      emailsState.emailHeaders[emailUid] = {
+        ...emailsState.emailHeaders[emailUid],
+        seen: false,
+      }
+    }
+  }
+
+  const deleteEmail = async (emailUid: number) => {
+    await api.emails.actions({ id: emailUid }).delete()
+    if (emailsState.cachedEmailContents[emailUid]) {
+      delete emailsState.cachedEmailContents[emailUid]
+    }
+    if (emailsState.emailHeaders[emailUid]) {
+      delete emailsState.emailHeaders[emailUid]
+    }
+    if (activeEmailHeader?.uid === emailUid) {
+      emailsState.activeEmailHeader = undefined
+    }
+  }
+
+  const fetchEmailAttachment = async (emailUid: number) => {
+    const { data, error } = await api.emails
+      .content({ uid: emailUid })
+      .attachments.get()
+
+    if (error) {
+      attachments = []
+      return null
+    }
+
+    attachments = data?.payload?.attachments || []
   }
 
   $effect(() => {
     if (activeEmailHeader) {
       fetchActiveEmailContent(activeEmailHeader.uid)
+      fetchEmailAttachment(activeEmailHeader.uid)
     } else {
       email = null
       loadingEmailContent = false

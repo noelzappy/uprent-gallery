@@ -1,7 +1,10 @@
 import { t, Elysia } from 'elysia'
 import { corePlugin, res } from '@/plugins'
 import { EMAIL_CATEGORY } from '~core/database'
-import { EmailDBRecord } from '~core/database/data-types/email'
+import {
+  EmailAttachmentDBRecord,
+  EmailDBRecord,
+} from '~core/database/data-types/email'
 import { statePlugin } from '@/state'
 
 const resDTO = t.Object({
@@ -44,6 +47,21 @@ const resDTO = t.Object({
 
 const reqParamsDTO = t.Object({
   uid: t.Number(),
+})
+
+const attachmentResDTO = t.Object({
+  attachments: t.Array(
+    t.Object({
+      id: t.Number(),
+      emailId: t.Number(),
+      partId: t.String(),
+      filename: t.Optional(t.String()),
+      mimeType: t.Optional(t.String()),
+      size: t.Optional(t.Number()),
+      storagePath: t.Optional(t.String()),
+      createdAt: t.String({ format: 'date-time' }),
+    }),
+  ),
 })
 
 export const fetchEmailContentHandler = new Elysia()
@@ -110,4 +128,37 @@ export const fetchEmailContentHandler = new Elysia()
       })
     },
     { response: res(resDTO), params: reqParamsDTO },
+  )
+  .get(
+    '/emails/content/:uid/attachments',
+    async ({ res, params, db }) => {
+      const { uid } = params
+
+      if (!uid) {
+        return res.badRequest("'uid' parameter is required")
+      }
+
+      const result = db
+        .query(
+          `
+        SELECT *
+        FROM attachments
+        WHERE emailId = (
+          SELECT id FROM emails WHERE imapUid = ?
+        )
+      `,
+        )
+        .get(uid) as EmailAttachmentDBRecord[] | undefined
+
+      if (!result) {
+        return res.notFound('Email not found')
+      }
+      return res.ok({
+        attachments: result,
+      })
+    },
+    {
+      response: res(attachmentResDTO),
+      params: reqParamsDTO,
+    },
   )
