@@ -36,6 +36,8 @@ export const initDatabase = (db: Database) => {
       bodyPlain    TEXT,                   
       bodyHtml     TEXT,
       inReplyTo   TEXT,
+      seen         INTEGER NOT NULL DEFAULT 0,
+      deleted      INTEGER NOT NULL DEFAULT 0,
       refs          TEXT,
       attachmentJson TEXT,
       size          INTEGER,                   

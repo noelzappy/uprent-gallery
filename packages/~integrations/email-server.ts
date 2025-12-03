@@ -53,6 +53,51 @@ export class EmailServer {
     return { total, UIDs: allUIDs }
   }
 
+  async markEmailAsSeen(
+    connectionParams: ConnectionParams,
+    emailUid: number,
+  ): Promise<void> {
+    const { imap } = await this.connectAndOpenBox(connectionParams, 'INBOX')
+
+    return new Promise((resolve, reject) => {
+      imap.addFlags(emailUid, '\\Seen', err => {
+        if (err) return reject(err)
+        resolve()
+      })
+    })
+  }
+
+  async markEmailAsUnseen(
+    connectionParams: ConnectionParams,
+    emailUid: number,
+  ): Promise<void> {
+    const { imap } = await this.connectAndOpenBox(connectionParams, 'INBOX')
+
+    return new Promise((resolve, reject) => {
+      imap.delFlags(emailUid, '\\Seen', err => {
+        if (err) return reject(err)
+        resolve()
+      })
+    })
+  }
+
+  async deleteEmail(
+    connectionParams: ConnectionParams,
+    emailUid: number,
+  ): Promise<void> {
+    const { imap } = await this.connectAndOpenBox(connectionParams, 'INBOX')
+
+    return new Promise((resolve, reject) => {
+      imap.addFlags(emailUid, '\\Deleted', err => {
+        if (err) return reject(err)
+        imap.expunge(emailUid, expungeErr => {
+          if (expungeErr) return reject(expungeErr)
+          resolve()
+        })
+      })
+    })
+  }
+
   private async fetchAndParseEmails(
     imap: Imap,
     uids: number[],
