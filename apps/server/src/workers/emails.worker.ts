@@ -149,7 +149,7 @@ async function processEmailChunk(
           const savedEmail = db
             .query<{ id: number }, any[]>(
               `
-          INSERT INTO emails
+          INSERT INTO OR REPLACE emails
           (emailAccountId, emailAddress, mailbox, imapUid, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson, bodyHtml)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           RETURNING id
