@@ -1,7 +1,7 @@
 import { t, Elysia } from 'elysia'
 import { corePlugin, res } from '@/plugins'
 import { EMAIL_CATEGORY } from '~core/database'
-import {
+import type {
   EmailAttachmentDBRecord,
   EmailDBRecord,
 } from '~core/database/data-types/email'
