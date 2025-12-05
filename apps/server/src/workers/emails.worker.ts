@@ -77,27 +77,57 @@ async function syncEmailAccount(accountId: number) {
       `Syncing ${uidsToFetch.length} new emails for account ${emailAccount.emailAddress}...`,
     )
 
-    const CHUNK_SIZE = 10
-    for (let i = 0; i < uidsToFetch.length; i += CHUNK_SIZE) {
-      const chunkUids = uidsToFetch.slice(i, i + CHUNK_SIZE)
-      await processEmailChunk(chunkUids, connectionParams, emailAccount)
+    const pendingEmailsForBodySync: (Email & { dbId: number })[] = []
+    let headersFinished = false
+
+    const fetchHeadersTask = async () => {
+      const HEADER_CHUNK_SIZE = 50
+      for (let i = 0; i < uidsToFetch.length; i += HEADER_CHUNK_SIZE) {
+        const chunkUids = uidsToFetch.slice(i, i + HEADER_CHUNK_SIZE)
+        const emails = await fetchAndSaveHeaders(
+          chunkUids,
+          connectionParams,
+          emailAccount,
+        )
+        pendingEmailsForBodySync.push(...emails)
+
+        while (pendingEmailsForBodySync.length > 100) {
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+      }
+      headersFinished = true
     }
+
+    const fetchBodiesTask = async () => {
+      const BODY_CHUNK_SIZE = 5
+      while (!headersFinished || pendingEmailsForBodySync.length > 0) {
+        if (pendingEmailsForBodySync.length === 0) {
+          await new Promise(resolve => setTimeout(resolve, 200))
+          continue
+        }
+
+        const batch = pendingEmailsForBodySync.splice(0, BODY_CHUNK_SIZE)
+        await processBodyBatch(batch, connectionParams)
+      }
+    }
+
+    await Promise.all([fetchHeadersTask(), fetchBodiesTask()])
   } catch (error) {
     console.error(`Error syncing account ${accountId}:`, error)
   }
 }
 
-async function processEmailChunk(
+async function fetchAndSaveHeaders(
   uids: number[],
   connectionParams: any,
   emailAccount: ImapAccount,
-) {
+): Promise<(Email & { dbId: number })[]> {
   try {
     const emails = await retry(() =>
       emailServer.loadEmailHeaders(connectionParams, uids),
     )
 
-    const savedEmailsMap = new Map<number, number>()
+    const result: (Email & { dbId: number })[] = []
 
     const headerTransaction = db.transaction((items: Email[]) => {
       for (const email of items) {
@@ -129,7 +159,7 @@ async function processEmailChunk(
           ])
 
         if (savedEmail) {
-          savedEmailsMap.set(email.uid, savedEmail.id)
+          result.push({ ...email, dbId: savedEmail.id })
           try {
             self.postMessage({
               type: 'emailSynced',
@@ -149,7 +179,18 @@ async function processEmailChunk(
     })
 
     headerTransaction(emails)
+    return result
+  } catch (error) {
+    console.error('Error fetching/saving headers:', error)
+    return []
+  }
+}
 
+async function processBodyBatch(
+  emails: (Email & { dbId: number })[],
+  connectionParams: any,
+) {
+  try {
     const bodyResults = await Promise.all(
       emails.map(async email => {
         try {
@@ -172,7 +213,7 @@ async function processEmailChunk(
             processedAttachments.push({ ...att, storagePath: path })
           }
 
-          return { uid: email.uid, body, attachments: processedAttachments }
+          return { dbId: email.dbId, body, attachments: processedAttachments }
         } catch (err) {
           console.error(
             `Failed to fetch details for email UID ${email.uid}. Skipping body.`,
@@ -184,15 +225,13 @@ async function processEmailChunk(
     )
 
     const bodyTransaction = db.transaction(
-      (items: { uid: number; body: string; attachments: any[] }[]) => {
+      (items: { dbId: number; body: string; attachments: any[] }[]) => {
         for (const item of items) {
           if (!item) continue
-          const dbId = savedEmailsMap.get(item.uid)
-          if (!dbId) continue
 
           db.query('UPDATE emails SET bodyHtml = ? WHERE id = ?').run(
             item.body,
-            dbId,
+            item.dbId,
           )
 
           for (const att of item.attachments) {
@@ -203,7 +242,7 @@ async function processEmailChunk(
           VALUES ( ?, ?, ?, ?, ?, ? )
         `,
             ).run(
-              dbId,
+              item.dbId,
               att.partNumber || null,
               att.filename || null,
               att.contentType || null,
@@ -217,7 +256,7 @@ async function processEmailChunk(
 
     bodyTransaction(bodyResults)
   } catch (error) {
-    console.error('Error processing email chunk:', error)
+    console.error('Error processing body batch:', error)
   }
 }
 
@@ -241,7 +280,9 @@ export async function initSyncAll() {
         .all(limit, offset) as ImapAccount[]
 
       await Promise.all(
-        emailAccounts.map(emailAccount => syncEmailAccount(emailAccount.id)),
+        emailAccounts.map(emailAccount =>
+          retry(() => syncEmailAccount(emailAccount.id)),
+        ),
       )
 
       offset += limit
