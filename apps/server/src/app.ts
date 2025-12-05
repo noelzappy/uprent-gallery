@@ -5,7 +5,7 @@ import db from './database/db'
 import { corePlugin } from './plugins'
 import { statePlugin, worker } from './state'
 
-initDatabase(db)
+await initDatabase(db)
 await seedDatabase(db)
 
 const app = new Elysia()

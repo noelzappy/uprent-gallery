@@ -8,14 +8,43 @@
   import Email from './email.svelte'
 
   let loading = $state(true)
+  let syncing = $state(false)
   let emailError = $state<string | null>(null)
   let paging = $state<{ cursor: number; hasMore: boolean }>({
     cursor: 0,
     hasMore: true,
   })
 
-  onMount(async () => {
-    await onLoadEmailHeaders()
+  let sortedHeaders = $derived(
+    Object.values(emailsState.emailHeaders).sort((a, b) => {
+      return new Date(b.datetime).getTime() - new Date(a.datetime).getTime()
+    }),
+  )
+
+  onMount(() => {
+    onLoadEmailHeaders()
+    const ws = api.emails.sync.subscribe()
+    ws.subscribe(async event => {
+      const { data } = event
+      if (typeof data === 'string') {
+        try {
+          const parsed = JSON.parse(data)
+          if (parsed.type === 'emailSynced') {
+            if (sortedHeaders.length < 5) {
+              emailsState.addHeaders([parsed.payload])
+            }
+          } else if (parsed.type === 'syncComplete') {
+            syncing = false
+          }
+        } catch (e) {
+          console.error('Failed to parse WS message', e)
+        }
+      }
+    })
+
+    return () => {
+      ws.close()
+    }
   })
 
   const onLoadEmailHeaders = async () => {
@@ -39,15 +68,9 @@
   }
 
   const syncEmails = async () => {
+    syncing = true
     await api.emails.sync.post()
-    await onLoadEmailHeaders()
   }
-
-  let sortedHeaders = $derived(
-    Object.values(emailsState.emailHeaders).sort((a, b) => {
-      return new Date(b.datetime).getTime() - new Date(a.datetime).getTime()
-    }),
-  )
 </script>
 
 <div
@@ -84,22 +107,37 @@
     <div
       class=".flex .h-full .flex-col .items-center .justify-center .gap-4 .p-8 .text-center"
     >
-      <div class=".rounded-full .bg-gray-100 .p-3">
-        <EmailSVG />
-      </div>
-      <div class=".max-w-md">
-        <h3 class=".text-lg .font-medium .text-gray-900">No Emails</h3>
-        <p class=".mt-1 .text-sm .text-gray-500">
-          You have no emails at the moment. Please check back later.
-        </p>
-      </div>
+      {#if syncing}
+        <div class=".rounded-full .bg-blue-50 .p-3">
+          <LoadingSpinnerSVG class=".h-8 .w-8 .animate-spin .text-primary" />
+        </div>
+        <div class=".max-w-md">
+          <h3 class=".text-lg .font-medium .text-gray-900">
+            Syncing Emails...
+          </h3>
+          <p class=".mt-1 .text-sm .text-gray-500">
+            We are fetching your emails. They will appear here as soon as they
+            are ready.
+          </p>
+        </div>
+      {:else}
+        <div class=".rounded-full .bg-gray-100 .p-3">
+          <EmailSVG />
+        </div>
+        <div class=".max-w-md">
+          <h3 class=".text-lg .font-medium .text-gray-900">No Emails</h3>
+          <p class=".mt-1 .text-sm .text-gray-500">
+            You have no emails at the moment. Please check back later.
+          </p>
+        </div>
 
-      <button
-        onclick={syncEmails}
-        class=".hover:bg-primary/90 .focus:outline-none .focus:ring-2 .focus:ring-primary .focus:ring-offset-2 .rounded-md .bg-primary .px-4 .py-2 .text-sm .font-medium .text-white .shadow-sm"
-      >
-        Fetch Emails
-      </button>
+        <button
+          onclick={syncEmails}
+          class=".hover:bg-primary/90 .focus:outline-none .focus:ring-2 .focus:ring-primary .focus:ring-offset-2 .rounded-md .bg-primary .px-4 .py-2 .text-sm .font-medium .text-white .shadow-sm"
+        >
+          Fetch Emails
+        </button>
+      {/if}
     </div>
   {:else}
     <div

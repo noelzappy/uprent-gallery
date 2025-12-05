@@ -176,6 +176,21 @@ async function processEmailChunk(
 
           if (!savedEmail) continue
 
+          try {
+            self.postMessage({
+              type: 'emailSynced',
+              payload: {
+                id: savedEmail.id,
+                imapUid: email.uid,
+                subject: email.subject,
+                datetime: email.datetime,
+                from: email.from,
+              },
+            })
+          } catch (err) {
+            console.error('Error posting emailSynced message:', err)
+          }
+
           for (const att of attachments) {
             db.query(
               `
@@ -341,7 +356,14 @@ self.onmessage = async (event: MessageEvent) => {
         await initSyncAll()
       }
 
-      self.postMessage('done')
+      self.postMessage({
+        type: 'syncComplete',
+        payload: {
+          emailUserName: payload?.emailUserName || null,
+          timestamp: Date.now(),
+        },
+      })
+
       break
     case 'markAsSeen':
       if (payload?.emailUid) await markAsSeen(payload.emailUid)

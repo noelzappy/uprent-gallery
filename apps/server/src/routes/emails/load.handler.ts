@@ -121,11 +121,53 @@ export const loadEmailsHandler = new Elysia()
     },
     { response: res(emailHeadersResDTO), query: emailReqQueryDTO },
   )
-  .post('/emails/sync', async ({ emailWorker, db }) => {
-    // Should ideally come from authenticated user context
+  .post('/emails/sync', async ({ emailWorker }) => {
     const emailUserName = Bun.env.EMAIL_USERNAME!
 
     emailWorker.postMessage({ type: 'sync', payload: { emailUserName } })
 
     return { success: true }
+  })
+  .ws('/emails/sync', {
+    open(ws) {
+      const { emailWorker } = (ws as any).data || {}
+      const emailUserName = Bun.env.EMAIL_USERNAME!
+      if (!emailUserName) {
+        ws.close(1008, 'Email username not set')
+        return
+      }
+
+      const onWorkerMessage = (ev: MessageEvent) => {
+        try {
+          const payload = ev?.data ?? ev
+          const messageToSend =
+            typeof payload === 'string' ? payload : JSON.stringify(payload)
+          ws.send(messageToSend)
+        } catch (err) {
+          console.error('Failed to forward worker message to ws client', err)
+        }
+      }
+
+      emailWorker.addEventListener('message', onWorkerMessage)
+      ;(ws as any).__workerListener = onWorkerMessage
+    },
+
+    message(ws, ctx) {
+      const { emailWorker, message } = ctx as any
+      try {
+        const parsed =
+          typeof message === 'string' ? JSON.parse(message) : message
+        emailWorker.postMessage(parsed)
+      } catch (err) {
+        emailWorker.postMessage(message)
+      }
+    },
+
+    close(ws) {
+      const { emailWorker } = (ws as any).data || {}
+      const l = (ws as any).__workerListener
+      if (l && emailWorker) {
+        emailWorker.removeEventListener('message', l)
+      }
+    },
   })
