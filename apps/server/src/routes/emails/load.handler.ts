@@ -130,7 +130,7 @@ export const loadEmailsHandler = new Elysia()
   })
   .ws('/emails/sync', {
     open(ws) {
-      const { emailWorker } = (ws as any).data || {}
+      const { emailWorker }: { emailWorker: Worker } = (ws as any).data || {}
       const emailUserName = Bun.env.EMAIL_USERNAME!
       if (!emailUserName) {
         ws.close(1008, 'Email username not set')
@@ -148,11 +148,15 @@ export const loadEmailsHandler = new Elysia()
         }
       }
 
-      emailWorker.addEventListener('message', onWorkerMessage)
+      emailWorker.addEventListener(
+        'message',
+        onWorkerMessage,
+        (ws as any).__workerListener,
+      )
       ;(ws as any).__workerListener = onWorkerMessage
     },
 
-    message(ws, ctx) {
+    message(_ws, ctx) {
       const { emailWorker, message } = ctx as any
       try {
         const parsed =

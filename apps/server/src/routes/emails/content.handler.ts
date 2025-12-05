@@ -59,7 +59,7 @@ const attachmentResDTO = t.Object({
       mimeType: t.Optional(t.String()),
       size: t.Optional(t.Number()),
       storagePath: t.Optional(t.String()),
-      createdAt: t.String({ format: 'date-time' }),
+      createdAt: t.String(),
     }),
   ),
 })

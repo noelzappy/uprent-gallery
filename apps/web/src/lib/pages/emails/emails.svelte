@@ -26,6 +26,7 @@
     const ws = api.emails.sync.subscribe()
     ws.subscribe(async event => {
       const { data } = event
+
       if (typeof data === 'string') {
         try {
           const parsed = JSON.parse(data)

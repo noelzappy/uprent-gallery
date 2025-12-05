@@ -21,7 +21,7 @@ export class EmailServer {
   private connectionTimeouts: Record<string, ReturnType<typeof setTimeout>> = {}
   private attachmentsBasePath: string = './storage/attachments'
 
-  async loadEmails(
+  async loadEmailHeaders(
     connectionParams: ConnectionParams,
     uids: number[],
   ): Promise<Email[]> {
@@ -30,13 +30,18 @@ export class EmailServer {
       'INBOX',
     )
 
-    if (!box.messages.total) {
-      return []
+    try {
+      if (!box.messages.total) {
+        return []
+      }
+
+      const emails = await this.fetchAndParseEmailHeaders(imap, uids)
+
+      return emails
+    } finally {
+      await catchError(this.closeBox(imap), false)
+      this.resetInactivityTimeout(connectionParams.username)
     }
-
-    const emails = await this.fetchAndParseEmails(imap, uids)
-
-    return emails
   }
 
   async getInboxStats(
@@ -98,12 +103,12 @@ export class EmailServer {
     })
   }
 
-  private async fetchAndParseEmails(
+  private async fetchAndParseEmailHeaders(
     imap: Imap,
     uids: number[],
   ): Promise<Email[]> {
     return new Promise<Email[]>((resolve, reject) => {
-      const fetch = imap.seq.fetch(uids, {
+      const fetch = imap.fetch(uids, {
         bodies: 'HEADER',
         struct: true,
       })

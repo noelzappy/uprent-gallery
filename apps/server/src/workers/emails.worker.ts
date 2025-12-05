@@ -94,7 +94,7 @@ async function processEmailChunk(
 ) {
   try {
     const emails = await retry(() =>
-      emailServer.loadEmails(connectionParams, uids),
+      emailServer.loadEmailHeaders(connectionParams, uids),
     )
 
     const preparedEmails: {
