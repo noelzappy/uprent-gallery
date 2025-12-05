@@ -64,7 +64,7 @@ async function syncEmailAccount(accountId: number) {
 
     const uidsToFetch = UIDs.filter(
       uid => !lastSyncedUidRow?.maxUid || uid > lastSyncedUidRow.maxUid,
-    )
+    ).reverse()
 
     if (uidsToFetch.length === 0) {
       console.log(
@@ -93,52 +93,52 @@ async function processEmailChunk(
   emailAccount: ImapAccount,
 ) {
   try {
-    const emails = await retry(async () => {
-      const emailHeaders = await emailServer.loadEmailHeaders(
-        connectionParams,
-        uids,
-      )
+    const emails = await retry(() =>
+      emailServer.loadEmailHeaders(connectionParams, uids),
+    )
 
-      for (const headers of emailHeaders) {
-        const savedHeader = db
-          .query(
+    const savedEmailsMap = new Map<number, number>()
+
+    const headerTransaction = db.transaction((items: Email[]) => {
+      for (const email of items) {
+        const savedEmail = db
+          .query<{ id: number }, any[]>(
             `
-        INSERT INTO OR IGNORE emails
-        (emailAccountId, emailAddress, mailbox, imapUid, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        RETURNING id
-      `,
+          INSERT INTO OR REPLACE emails
+          (emailAccountId, emailAddress, mailbox, imapUid, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          RETURNING id
+        `,
           )
-          .run(
+          .get([
             emailAccount.id,
             emailAccount.emailAddress,
             'INBOX',
-            headers.uid,
-            headers.messageId,
-            headers.datetime,
-            headers.subject,
-            headers.from.name || null,
-            headers.from.email,
-            JSON.stringify(headers.to),
-            headers.cc ? JSON.stringify(headers.cc) : null,
-            headers.inReplyTo || null,
-            headers.references ? JSON.stringify(headers.references) : null,
-            JSON.stringify(headers.flags),
-            headers.attachments ? JSON.stringify(headers.attachments) : null,
-          )
+            email.uid,
+            email.messageId,
+            email.datetime,
+            email.subject,
+            email.from.name || null,
+            email.from.email,
+            JSON.stringify(email.to),
+            email.cc ? JSON.stringify(email.cc) : null,
+            email.inReplyTo || null,
+            email.references ? JSON.stringify(email.references) : null,
+            JSON.stringify(email.flags),
+            email.attachments ? JSON.stringify(email.attachments) : null,
+          ])
 
-        if (!savedHeader) continue
-
-        for (const headers of emailHeaders) {
+        if (savedEmail) {
+          savedEmailsMap.set(email.uid, savedEmail.id)
           try {
             self.postMessage({
               type: 'emailSynced',
               payload: {
-                id: savedHeader.lastInsertRowid as number,
-                imapUid: headers.uid,
-                subject: headers.subject,
-                datetime: headers.datetime,
-                from: headers.from,
+                id: savedEmail.id,
+                imapUid: email.uid,
+                subject: email.subject,
+                datetime: email.datetime,
+                from: email.from,
               },
             })
           } catch (err) {
@@ -146,90 +146,56 @@ async function processEmailChunk(
           }
         }
       }
-
-      return emailHeaders
     })
 
-    const preparedEmails: {
-      email: Email
-      body: string
-      attachments: any[]
-    }[] = []
+    headerTransaction(emails)
 
-    for (const email of emails) {
-      try {
-        const body = await retry(() =>
-          emailServer.fetchEmailBody({
-            connectionParams,
-            emailUid: email.uid,
-          }),
-        )
-
-        const processedAttachments = []
-        for (const att of email.attachments || []) {
-          const path = await retry(() =>
-            emailServer.fetchAndSaveAttachment({
+    const bodyResults = await Promise.all(
+      emails.map(async email => {
+        try {
+          const body = await retry(() =>
+            emailServer.fetchEmailBody({
               connectionParams,
               emailUid: email.uid,
-              attachment: att,
             }),
           )
-          processedAttachments.push({ ...att, storagePath: path })
-        }
 
-        preparedEmails.push({
-          email,
-          body,
-          attachments: processedAttachments,
-        })
-      } catch (err) {
-        console.error(
-          `Failed to fetch details for email UID ${email.uid}. Skipping.`,
-          err,
-        )
-      }
-    }
-
-    if (preparedEmails.length === 0) return
-
-    const saveTransaction = db.transaction(
-      (
-        items: { email: Email; body: string; attachments: any[] }[],
-        accountId: number,
-        emailAddress: string,
-      ) => {
-        for (const { email, body, attachments } of items) {
-          const savedEmail = db
-            .query<{ id: number }, any[]>(
-              `
-          INSERT INTO OR REPLACE emails
-          (emailAccountId, emailAddress, mailbox, imapUid, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson, bodyHtml)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          RETURNING id
-        `,
+          const processedAttachments = []
+          for (const att of email.attachments || []) {
+            const path = await retry(() =>
+              emailServer.fetchAndSaveAttachment({
+                connectionParams,
+                emailUid: email.uid,
+                attachment: att,
+              }),
             )
-            .get([
-              accountId,
-              emailAddress,
-              'INBOX',
-              email.uid,
-              email.messageId,
-              email.datetime,
-              email.subject,
-              email.from.name || null,
-              email.from.email,
-              JSON.stringify(email.to),
-              email.cc ? JSON.stringify(email.cc) : null,
-              email.inReplyTo || null,
-              email.references ? JSON.stringify(email.references) : null,
-              JSON.stringify(email.flags),
-              email.attachments ? JSON.stringify(email.attachments) : null,
-              body || null,
-            ])
+            processedAttachments.push({ ...att, storagePath: path })
+          }
 
-          if (!savedEmail) continue
+          return { uid: email.uid, body, attachments: processedAttachments }
+        } catch (err) {
+          console.error(
+            `Failed to fetch details for email UID ${email.uid}. Skipping body.`,
+            err,
+          )
+          return null
+        }
+      }),
+    )
 
-          for (const att of attachments) {
+    const bodyTransaction = db.transaction(
+      (items: { uid: number; body: string; attachments: any[] }[]) => {
+        for (const item of items) {
+          if (!item) continue
+          const dbId = savedEmailsMap.get(item.uid)
+          if (!dbId) continue
+
+          db.query('UPDATE emails SET bodyHtml = ? WHERE id = ?').run(
+            item.body,
+            dbId,
+          )
+
+          for (const att of item.attachments) {
             db.query(
               `
           INSERT INTO OR REPLACE attachments
@@ -237,7 +203,7 @@ async function processEmailChunk(
           VALUES ( ?, ?, ?, ?, ?, ? )
         `,
             ).run(
-              savedEmail.id,
+              dbId,
               att.partNumber || null,
               att.filename || null,
               att.contentType || null,
@@ -249,7 +215,7 @@ async function processEmailChunk(
       },
     )
 
-    saveTransaction(preparedEmails, emailAccount.id, emailAccount.emailAddress)
+    bodyTransaction(bodyResults)
   } catch (error) {
     console.error('Error processing email chunk:', error)
   }
