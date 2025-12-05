@@ -6,7 +6,7 @@ import { decrypt, importEncryptionKey } from '~utils'
 
 const RETRY_OPTIONS = {
   retries: 3,
-  delay: 1000,
+  delay: 500,
 }
 
 async function retry<T>(
@@ -78,6 +78,7 @@ async function syncEmailAccount(accountId: number) {
     )
 
     const CHUNK_SIZE = 10
+
     for (let i = 0; i < uidsToFetch.length; i += CHUNK_SIZE) {
       const chunkUids = uidsToFetch.slice(i, i + CHUNK_SIZE)
       await processEmailChunk(chunkUids, connectionParams, emailAccount)
