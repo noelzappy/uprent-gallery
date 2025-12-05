@@ -100,29 +100,51 @@ async function processEmailChunk(
       )
 
       for (const headers of emailHeaders) {
-        db.query(
-          `
+        const savedHeader = db
+          .query(
+            `
         INSERT INTO OR IGNORE emails
         (emailAccountId, emailAddress, mailbox, imapUid, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
       `,
-        ).run(
-          emailAccount.id,
-          emailAccount.emailAddress,
-          'INBOX',
-          headers.uid,
-          headers.messageId,
-          headers.datetime,
-          headers.subject,
-          headers.from.name || null,
-          headers.from.email,
-          JSON.stringify(headers.to),
-          headers.cc ? JSON.stringify(headers.cc) : null,
-          headers.inReplyTo || null,
-          headers.references ? JSON.stringify(headers.references) : null,
-          JSON.stringify(headers.flags),
-          headers.attachments ? JSON.stringify(headers.attachments) : null,
-        )
+          )
+          .run(
+            emailAccount.id,
+            emailAccount.emailAddress,
+            'INBOX',
+            headers.uid,
+            headers.messageId,
+            headers.datetime,
+            headers.subject,
+            headers.from.name || null,
+            headers.from.email,
+            JSON.stringify(headers.to),
+            headers.cc ? JSON.stringify(headers.cc) : null,
+            headers.inReplyTo || null,
+            headers.references ? JSON.stringify(headers.references) : null,
+            JSON.stringify(headers.flags),
+            headers.attachments ? JSON.stringify(headers.attachments) : null,
+          )
+
+        if (!savedHeader) continue
+
+        for (const headers of emailHeaders) {
+          try {
+            self.postMessage({
+              type: 'emailSynced',
+              payload: {
+                id: savedHeader.lastInsertRowid as number,
+                imapUid: headers.uid,
+                subject: headers.subject,
+                datetime: headers.datetime,
+                from: headers.from,
+              },
+            })
+          } catch (err) {
+            console.error('Error posting emailSynced message:', err)
+          }
+        }
       }
 
       return emailHeaders
@@ -206,21 +228,6 @@ async function processEmailChunk(
             ])
 
           if (!savedEmail) continue
-
-          try {
-            self.postMessage({
-              type: 'emailSynced',
-              payload: {
-                id: savedEmail.id,
-                imapUid: email.uid,
-                subject: email.subject,
-                datetime: email.datetime,
-                from: email.from,
-              },
-            })
-          } catch (err) {
-            console.error('Error posting emailSynced message:', err)
-          }
 
           for (const att of attachments) {
             db.query(
