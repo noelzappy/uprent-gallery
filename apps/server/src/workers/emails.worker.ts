@@ -78,7 +78,6 @@ async function syncEmailAccount(accountId: number) {
     )
 
     const CHUNK_SIZE = 10
-
     for (let i = 0; i < uidsToFetch.length; i += CHUNK_SIZE) {
       const chunkUids = uidsToFetch.slice(i, i + CHUNK_SIZE)
       await processEmailChunk(chunkUids, connectionParams, emailAccount)
@@ -94,9 +93,40 @@ async function processEmailChunk(
   emailAccount: ImapAccount,
 ) {
   try {
-    const emails = await retry(() =>
-      emailServer.loadEmailHeaders(connectionParams, uids),
-    )
+    const emails = await retry(async () => {
+      const emailHeaders = await emailServer.loadEmailHeaders(
+        connectionParams,
+        uids,
+      )
+
+      for (const headers of emailHeaders) {
+        db.query(
+          `
+        INSERT INTO OR IGNORE emails
+        (emailAccountId, emailAddress, mailbox, imapUid, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+        ).run(
+          emailAccount.id,
+          emailAccount.emailAddress,
+          'INBOX',
+          headers.uid,
+          headers.messageId,
+          headers.datetime,
+          headers.subject,
+          headers.from.name || null,
+          headers.from.email,
+          JSON.stringify(headers.to),
+          headers.cc ? JSON.stringify(headers.cc) : null,
+          headers.inReplyTo || null,
+          headers.references ? JSON.stringify(headers.references) : null,
+          JSON.stringify(headers.flags),
+          headers.attachments ? JSON.stringify(headers.attachments) : null,
+        )
+      }
+
+      return emailHeaders
+    })
 
     const preparedEmails: {
       email: Email

@@ -6,6 +6,7 @@ import type {
   EmailDBRecord,
 } from '~core/database/data-types/email'
 import { statePlugin } from '@/state'
+import { emailServer } from '~integrations/email-server'
 
 const resDTO = t.Object({
   email: t.Object({
@@ -76,7 +77,7 @@ export const fetchEmailContentHandler = new Elysia()
         return res.badRequest("'uid' parameter is required")
       }
 
-      const result = db
+      let result = db
         .query(
           `
         SELECT *
@@ -88,6 +89,27 @@ export const fetchEmailContentHandler = new Elysia()
 
       if (!result) {
         return res.notFound('Email not found')
+      }
+
+      if (!result.bodyHtml) {
+        const emailBody = await emailServer.fetchEmailBody({
+          connectionParams: {
+            host: Bun.env.EMAIL_IMAP_HOST!,
+            port: Number(Bun.env.EMAIL_IMAP_PORT!),
+            username: Bun.env.EMAIL_USERNAME!,
+            password: Bun.env.EMAIL_PASSWORD!,
+          },
+          emailUid: uid,
+        })
+        db.query(
+          `
+          UPDATE emails
+          SET bodyHtml = ?
+          WHERE imapUid = ?
+        `,
+        ).run(emailBody, uid)
+
+        result = { ...result, bodyHtml: emailBody }
       }
 
       return res.ok({
