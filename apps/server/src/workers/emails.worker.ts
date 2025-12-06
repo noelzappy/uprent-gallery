@@ -165,11 +165,6 @@ const fetchAndSaveEmailBody = async (
           (SELECT id FROM emails WHERE emailAccountId = ? AND mailbox = ? AND imapUid = ?),
           ?, ?, ?, ?, ?
         )
-        ON CONFLICT(emailId, partId) DO UPDATE SET
-          filename = excluded.filename,
-          mimeType = excluded.mimeType,
-          size = excluded.size,
-          storagePath = excluded.storagePath
       `,
     ).run(
       emailAccount.id,
