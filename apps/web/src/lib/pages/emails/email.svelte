@@ -19,6 +19,7 @@
   let loadingError = $state<string | null>(null)
   let currentlyLoadingUid = $state<number | null>(null)
   let attachments = $state<EmailAttachmentDBRecord[]>([])
+  let showAllAttachments = $state(false)
 
   const fetchActiveEmailContent = async (emailUid: number) => {
     if (currentlyLoadingUid === emailUid) {
@@ -214,14 +215,28 @@
         <div
           class=".mb-4 .border-b .border-t .border-gray-200 .py-3 sm:.mb-6 sm:.py-4"
         >
-          <div
-            class=".mb-2 .flex .items-center .gap-2 .text-xs .font-medium .text-gray-700 sm:.text-sm"
-          >
-            <PaperclipSVG class=".h-4 .w-4" />
-            {attachments.length} Attachment{attachments.length !== 1 ? 's' : ''}
+          <div class=".mb-2 .flex .items-center .justify-between .gap-2">
+            <div
+              class=".flex .items-center .gap-2 .text-xs .font-medium .text-gray-700 sm:.text-sm"
+            >
+              <PaperclipSVG class=".h-4 .w-4" />
+              {attachments.length} Attachment{attachments.length !== 1
+                ? 's'
+                : ''}
+            </div>
+            {#if attachments.length > 3}
+              <button
+                class=".text-xs .font-medium .text-primary hover:.underline sm:.text-sm"
+                onclick={() => (showAllAttachments = !showAllAttachments)}
+              >
+                {showAllAttachments
+                  ? 'Show less'
+                  : `View all (${attachments.length})`}
+              </button>
+            {/if}
           </div>
           <div class=".flex .flex-row .flex-wrap .gap-2 sm:.flex-col">
-            {#each attachments as attachment}
+            {#each showAllAttachments ? attachments : attachments.slice(0, 3) as attachment}
               <a
                 href={`${API_URL}/emails/attachment/${attachment.id}`}
                 target="_blank"
@@ -236,6 +251,14 @@
                 <DownloadSVG class=".h-4 .w-4 .shrink-0 .text-gray-400" />
               </a>
             {/each}
+
+            {#if !showAllAttachments && attachments.length > 3}
+              <div
+                class=".flex .h-10 .w-10 .items-center .justify-center .rounded-md .bg-gray-100 .text-sm .text-gray-500 sm:.h-12 sm:.w-12"
+              >
+                +{attachments.length - 3}
+              </div>
+            {/if}
           </div>
         </div>
       {/if}
