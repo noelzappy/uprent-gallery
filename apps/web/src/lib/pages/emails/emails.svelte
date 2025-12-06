@@ -46,7 +46,7 @@
 </script>
 
 <div
-  class=".absolute .inset-0 .mx-auto .flex .max-w-7xl .flex-col .overflow-hidden sm:.pb-16"
+  class=".absolute .inset-0 .mx-auto .flex .max-w-7xl .flex-col .overflow-hidden md:.px-2 sm:.px-4"
 >
   {#if loading && sortedHeaders.length === 0}
     <div class=".flex .h-20 .items-center .justify-center .text-gray-500">
@@ -57,7 +57,7 @@
     </div>
   {:else if emailError}
     <div
-      class="py-3 .flex .h-full .flex-col .items-center .justify-center .gap-4 .p-8 .text-center"
+      class="py-3 .flex .h-full .flex-col .items-center .justify-center .gap-4 .p-4 .text-center sm:.p-8"
     >
       <div class=".rounded-full .bg-red-50 .p-3">
         <AlertTriangleSVG class=".h-8 .w-8 .text-red-500" />
@@ -77,7 +77,7 @@
     </div>
   {:else if sortedHeaders.length === 0}
     <div
-      class=".flex .h-full .flex-col .items-center .justify-center .gap-4 .p-8 .text-center"
+      class=".flex .h-full .flex-col .items-center .justify-center .gap-4 .p-4 .text-center sm:.p-8"
     >
       <div class=".rounded-full .bg-gray-100 .p-3">
         <EmailSVG />
@@ -101,7 +101,9 @@
       class=".flex .h-full .overflow-hidden .rounded-lg .bg-white .shadow-lg"
     >
       <div
-        class=".flex .w-1/3 .min-w-[320px] .flex-col .border-r .border-gray-200"
+        class=".flex .flex-col .border-r .border-gray-200 {emailsState.activeEmailHeader
+          ? '.flex .w-1/3 sm:.hidden'
+          : '.flex .w-1/3 sm:.w-full'} .min-w-[320px]"
       >
         <div class=".flex-1 .overflow-y-auto">
           {#each sortedHeaders as header}
@@ -111,9 +113,12 @@
         </div>
       </div>
 
-      <div class=".relative .flex .flex-1 .flex-col .bg-[#efeae2]">
+      <div
+        class=".relative .flex .flex-col .bg-[#efeae2] {emailsState.activeEmailHeader
+          ? '.flex .flex-1'
+          : '.flex .flex-1 sm:.hidden'}"
+      >
         <Email />
       </div>
-    </div>
-  {/if}
+    </div>{/if}
 </div>

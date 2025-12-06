@@ -14,24 +14,24 @@
 </script>
 
 <button
-  class=".flex .w-full .min-w-0 .cursor-pointer .flex-col .justify-between .gap-3 .px-4 .py-3 .text-left {isActive
+  class=".flex .w-full .min-w-0 .cursor-pointer .flex-col .justify-between .gap-2 .px-3 .py-2.5 .text-left sm:.gap-3 sm:.px-4 sm:.py-3 {isActive
     ? '.bg-primary-100'
     : 'hover:.bg-gray-200'}"
   onclick={onSelectHeader}
 >
-  <span class=".flex .items-start .justify-between">
+  <span class=".flex .items-start .justify-between .gap-2">
     <span
-      class=".mr-2 .flex .items-center .gap-1.5 .truncate {isUnseen
+      class=".flex .min-w-0 .flex-1 .items-center .gap-1.5 {isUnseen
         ? '.font-bold .text-black'
         : '.font-medium'}"
     >
       {#if isUnseen}
         <span class=".h-2 .w-2 .shrink-0 .rounded-full .bg-primary"></span>
       {/if}
-      {header.subject}
+      <span class=".truncate .text-sm sm:.text-base">{header.subject}</span>
     </span>
     <span
-      class=".min-w-fit .whitespace-nowrap .text-xs {isUnseen
+      class=".shrink-0 .whitespace-nowrap .text-xs {isUnseen
         ? '.font-semibold .text-primary'
         : '.text-gray-500'}"
     >
@@ -41,9 +41,9 @@
 
   <span class=".flex .items-center .justify-between">
     <span
-      class=".truncate .text-sm {isUnseen
+      class=".truncate .text-sm .text-gray-600 md:.text-xs {isUnseen
         ? '.font-semibold .text-gray-900'
-        : '.text-gray-600'}"
+        : ''}"
     >
       From
       {header.from.name || header.from.email}

@@ -13,9 +13,9 @@
 </script>
 
 {#if paging.hasMore}
-  <div class=".my-5 .flex .h-20 .items-center .justify-center">
+  <div class=".my-5 .flex .items-center .justify-center .py-4 sm:.my-3">
     <button
-      class=".rounded .bg-gray-200 .px-4 .py-2 .text-sm .font-medium .text-gray-700 hover:.bg-gray-300"
+      class=".rounded .bg-gray-200 .px-4 .py-2 .text-sm .font-medium .text-gray-700 hover:.bg-gray-300 sm:.text-xs"
       onclick={async () => {
         await loadMore()
       }}
@@ -31,7 +31,9 @@
     </button>
   </div>
 {:else}
-  <div class=".my-5 .flex .h-20 .items-center .justify-center .text-gray-500">
+  <div
+    class=".my-3 .flex .items-center .justify-center .py-4 .text-xs .text-gray-500 sm:.my-5 sm:.text-sm"
+  >
     No more emails to load.
   </div>
 {/if}
