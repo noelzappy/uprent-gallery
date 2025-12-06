@@ -4,9 +4,11 @@ import { EMAIL_CATEGORY } from '~core/database'
 import type {
   EmailAttachmentDBRecord,
   EmailDBRecord,
+  ImapAccount,
 } from '~core/database/data-types/email'
 import { statePlugin } from '@/state'
 import { emailServer } from '~integrations/email-server'
+import { decrypt, importEncryptionKey } from '~utils'
 
 const resDTO = t.Object({
   email: t.Object({
@@ -92,15 +94,50 @@ export const fetchEmailContentHandler = new Elysia()
       }
 
       if (!result.bodyHtml) {
+        const emailAccount = Bun.env.EMAIL_USERNAME!
+
+        const imapAccount = db
+          .query(
+            `
+          SELECT *
+          FROM email_accounts
+          WHERE emailAddress = ?
+        `,
+          )
+          .get(emailAccount) as ImapAccount | undefined
+
+        if (!imapAccount) {
+          return res.serverError('IMAP account not found for email user')
+        }
+
+        const passwordDecryptionKey = await importEncryptionKey(
+          Bun.env.ENCRYPTION_KEY!,
+        )
+
+        const password = await decrypt(
+          imapAccount.password,
+          passwordDecryptionKey,
+        )
+        const startTime = Date.now()
+        console.log(`Fetching email body for UID ${uid}...`, startTime)
+
         const emailBody = await emailServer.fetchEmailBody({
           connectionParams: {
-            host: Bun.env.EMAIL_IMAP_HOST!,
-            port: Number(Bun.env.EMAIL_IMAP_PORT!),
-            username: Bun.env.EMAIL_USERNAME!,
-            password: Bun.env.EMAIL_PASSWORD!,
+            username: imapAccount.username,
+            password,
+            host: imapAccount.imapHost,
+            port: imapAccount.imapPort,
           },
           emailUid: uid,
         })
+
+        const endTime = Date.now()
+        console.log(
+          `Fetched email body for UID ${uid} in ${endTime - startTime}ms`,
+        )
+
+        console.log('Fetched email body for UID', uid, emailBody)
+
         db.query(
           `
           UPDATE emails

@@ -36,14 +36,14 @@ async function syncEmailAccount(accountId: number) {
     }
 
     const lastSyncedUidRow = db
-      .query<{ maxUid: number | null }, [ImapAccount['id'], string]>(
+      .query<{ maxUid: number | null }, any>(
         `
         SELECT MAX(imapUid) as maxUid
         FROM emails
-        WHERE emailAccountId = ? AND mailbox = ?
+        WHERE bodyHtml IS NOT NULL AND emailAccountId = ? AND mailbox = ?
       `,
       )
-      .get(emailAccount.id, 'INBOX')
+      .get(emailAccount.id, 'INBOX') as { maxUid: number | null }
 
     const passwordDecryptionKey = await importEncryptionKey(
       Bun.env.ENCRYPTION_KEY!,
@@ -134,7 +134,7 @@ async function fetchAndSaveHeaders(
         const savedEmail = db
           .query<{ id: number }, any[]>(
             `
-          INSERT INTO OR REPLACE emails
+          INSERT OR REPLACE INTO emails
           (emailAccountId, emailAddress, mailbox, imapUid, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           RETURNING id
@@ -237,7 +237,7 @@ async function processBodyBatch(
           for (const att of item.attachments) {
             db.query(
               `
-          INSERT INTO OR REPLACE attachments
+          INSERT OR REPLACE INTO attachments
           (emailId, partId, filename, mimeType, size, storagePath)
           VALUES ( ?, ?, ?, ?, ?, ? )
         `,
