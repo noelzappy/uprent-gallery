@@ -1,6 +1,9 @@
 import db from '@/database/db'
 import { type Email } from '~core/database'
-import { ImapAccount } from '~core/database/data-types/email'
+import {
+  ImapAccount,
+  ImapConnectionParams,
+} from '~core/database/data-types/email'
 import { emailServer } from '~integrations/email-server'
 import { decrypt, importEncryptionKey } from '~utils'
 
@@ -26,15 +29,8 @@ async function retry<T>(
   throw lastError
 }
 
-async function syncEmailAccount(accountId: number) {
+async function syncEmailAccount(emailAccount: ImapAccount) {
   try {
-    const emailAccount = db
-      .query('SELECT * FROM email_accounts WHERE id = ?')
-      .get(accountId) as ImapAccount
-    if (!emailAccount) {
-      throw new Error('No email account found for the given ID.')
-    }
-
     const lastSyncedUidRow = db
       .query<{ maxUid: number | null }, any>(
         `
@@ -61,9 +57,11 @@ async function syncEmailAccount(accountId: number) {
     const { UIDs } = await retry(() =>
       emailServer.getInboxStats(connectionParams),
     )
-
+    console.log(
+      `Account ${emailAccount.emailAddress} has ${UIDs.length} emails on server.`,
+    )
     const uidsToFetch = UIDs.filter(
-      uid => !lastSyncedUidRow?.maxUid || uid > lastSyncedUidRow.maxUid,
+      uid => !lastSyncedUidRow?.maxUid || uid < lastSyncedUidRow.maxUid,
     ).reverse()
 
     if (uidsToFetch.length === 0) {
@@ -72,191 +70,138 @@ async function syncEmailAccount(accountId: number) {
       )
       return
     }
-
-    console.log(
-      `Syncing ${uidsToFetch.length} new emails for account ${emailAccount.emailAddress}...`,
-    )
-
-    const pendingEmailsForBodySync: (Email & { dbId: number })[] = []
-    let headersFinished = false
-
-    const fetchHeadersTask = async () => {
-      const HEADER_CHUNK_SIZE = 50
-      for (let i = 0; i < uidsToFetch.length; i += HEADER_CHUNK_SIZE) {
-        const chunkUids = uidsToFetch.slice(i, i + HEADER_CHUNK_SIZE)
-        const emails = await fetchAndSaveHeaders(
-          chunkUids,
-          connectionParams,
-          emailAccount,
-        )
-        pendingEmailsForBodySync.push(...emails)
-
-        while (pendingEmailsForBodySync.length > 100) {
-          await new Promise(resolve => setTimeout(resolve, 100))
-        }
-      }
-      headersFinished = true
-    }
-
-    const fetchBodiesTask = async () => {
-      const BODY_CHUNK_SIZE = 5
-      while (!headersFinished || pendingEmailsForBodySync.length > 0) {
-        if (pendingEmailsForBodySync.length === 0) {
-          await new Promise(resolve => setTimeout(resolve, 200))
-          continue
-        }
-
-        const batch = pendingEmailsForBodySync.splice(0, BODY_CHUNK_SIZE)
-        await processBodyBatch(batch, connectionParams)
+    const processHeader = async (uids: number[]) => {
+      const BATCH_SIZE = 5
+      for (let i = 0; i < uids.length; i += BATCH_SIZE) {
+        const batchUids = uids.slice(i, i + BATCH_SIZE)
+        await fetchAndSaveHeaders(batchUids, connectionParams, emailAccount)
       }
     }
 
-    await Promise.all([fetchHeadersTask(), fetchBodiesTask()])
+    const processBody = async (uids: number[]) => {
+      const BATCH_SIZE = 2
+      for (let i = 0; i < uids.length; i += BATCH_SIZE) {
+        const batchUids = uids.slice(i, i + BATCH_SIZE)
+        await fetchAndSaveEmailBody(batchUids, connectionParams, emailAccount)
+      }
+    }
+
+    await processHeader(uidsToFetch)
+    await processBody(uidsToFetch)
+
+    console.log(`Completed sync for account ${emailAccount.emailAddress}.`)
   } catch (error) {
-    console.error(`Error syncing account ${accountId}:`, error)
+    console.error(`Error syncing account ${emailAccount.id}:`, error)
   }
+}
+
+const fetchAndSaveEmailBody = async (
+  uids: number[],
+  connectionParams: ImapConnectionParams,
+  emailAccount: ImapAccount,
+) => {
+  const emailBodies = await retry(() =>
+    emailServer.fetchEmailBodies({
+      connectionParams,
+      emailUids: uids,
+    }),
+  )
+
+  console.log(
+    `Fetched bodies for ${Object.keys(emailBodies).length} emails for account ${emailAccount.emailAddress}`,
+  )
+
+  const saveBodyTransaction = db.transaction(
+    (items: { uid: number; body: string; attachments: any[] }[]) => {
+      for (const item of items) {
+        db.query(
+          `
+              INSERT INTO emails
+              (bodyHtml, attachmentJson, imapUid, emailAccountId, mailbox, emailAddress)
+              VALUES (?, ?, ?, ?, ?, ?)
+              ON CONFLICT(emailAccountId, mailbox, imapUid) DO UPDATE SET
+                bodyHtml = excluded.bodyHtml,
+                attachmentJson = excluded.attachmentJson
+            `,
+        ).run(
+          item.body,
+          JSON.stringify(item.attachments),
+          item.uid,
+          emailAccount.id,
+          'INBOX',
+          emailAccount.emailAddress,
+        )
+      }
+    },
+  )
+
+  const bodyItems = Object.entries(emailBodies).map(
+    ([uid, { body, attachments }]) => ({
+      uid: Number(uid),
+      body,
+      attachments: attachments || [],
+    }),
+  )
+
+  await saveBodyTransaction(bodyItems)
 }
 
 async function fetchAndSaveHeaders(
   uids: number[],
-  connectionParams: any,
+  connectionParams: ImapConnectionParams,
   emailAccount: ImapAccount,
-): Promise<(Email & { dbId: number })[]> {
+): Promise<void> {
   try {
     const emails = await retry(() =>
       emailServer.loadEmailHeaders(connectionParams, uids),
     )
-
-    const result: (Email & { dbId: number })[] = []
-
+    console.log(
+      `Fetched ${emails.length} headers for account ${emailAccount.emailAddress}`,
+    )
     const headerTransaction = db.transaction((items: Email[]) => {
       for (const email of items) {
-        const savedEmail = db
-          .query<{ id: number }, any[]>(
-            `
-          INSERT OR REPLACE INTO emails
+        db.query<{ id: number }, any[]>(
+          `
+          INSERT INTO emails
           (emailAccountId, emailAddress, mailbox, imapUid, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(emailAccountId, mailbox, imapUid) DO UPDATE SET
+            messageId = excluded.messageId,
+            date = excluded.date,
+            subject = excluded.subject,
+            fromName = excluded.fromName,
+            fromEmail = excluded.fromEmail,
+            toJson = excluded.toJson,
+            ccJson = excluded.ccJson,
+            inReplyTo = excluded.inReplyTo,
+            refs = excluded.refs,
+            flagsJson = excluded.flagsJson,
+            attachmentJson = excluded.attachmentJson
           RETURNING id
         `,
-          )
-          .get([
-            emailAccount.id,
-            emailAccount.emailAddress,
-            'INBOX',
-            email.uid,
-            email.messageId,
-            email.datetime,
-            email.subject,
-            email.from.name || null,
-            email.from.email,
-            JSON.stringify(email.to),
-            email.cc ? JSON.stringify(email.cc) : null,
-            email.inReplyTo || null,
-            email.references ? JSON.stringify(email.references) : null,
-            JSON.stringify(email.flags),
-            email.attachments ? JSON.stringify(email.attachments) : null,
-          ])
-
-        if (savedEmail) {
-          result.push({ ...email, dbId: savedEmail.id })
-          try {
-            self.postMessage({
-              type: 'emailSynced',
-              payload: {
-                id: savedEmail.id,
-                imapUid: email.uid,
-                subject: email.subject,
-                datetime: email.datetime,
-                from: email.from,
-              },
-            })
-          } catch (err) {
-            console.error('Error posting emailSynced message:', err)
-          }
-        }
+        ).get([
+          emailAccount.id,
+          emailAccount.emailAddress,
+          'INBOX',
+          email.uid,
+          email.messageId,
+          email.datetime,
+          email.subject,
+          email.from.name || null,
+          email.from.email,
+          JSON.stringify(email.to),
+          email.cc ? JSON.stringify(email.cc) : null,
+          email.inReplyTo || null,
+          email.references ? JSON.stringify(email.references) : null,
+          JSON.stringify(email.flags),
+          email.attachments ? JSON.stringify(email.attachments) : null,
+        ])
       }
     })
 
     headerTransaction(emails)
-    return result
   } catch (error) {
     console.error('Error fetching/saving headers:', error)
-    return []
-  }
-}
-
-async function processBodyBatch(
-  emails: (Email & { dbId: number })[],
-  connectionParams: any,
-) {
-  try {
-    const bodyResults = await Promise.all(
-      emails.map(async email => {
-        try {
-          const body = await retry(() =>
-            emailServer.fetchEmailBody({
-              connectionParams,
-              emailUid: email.uid,
-            }),
-          )
-
-          const processedAttachments = []
-          for (const att of email.attachments || []) {
-            const path = await retry(() =>
-              emailServer.fetchAndSaveAttachment({
-                connectionParams,
-                emailUid: email.uid,
-                attachment: att,
-              }),
-            )
-            processedAttachments.push({ ...att, storagePath: path })
-          }
-
-          return { dbId: email.dbId, body, attachments: processedAttachments }
-        } catch (err) {
-          console.error(
-            `Failed to fetch details for email UID ${email.uid}. Skipping body.`,
-            err,
-          )
-          return null
-        }
-      }),
-    )
-
-    const bodyTransaction = db.transaction(
-      (items: { dbId: number; body: string; attachments: any[] }[]) => {
-        for (const item of items) {
-          if (!item) continue
-
-          db.query('UPDATE emails SET bodyHtml = ? WHERE id = ?').run(
-            item.body,
-            item.dbId,
-          )
-
-          for (const att of item.attachments) {
-            db.query(
-              `
-          INSERT OR REPLACE INTO attachments
-          (emailId, partId, filename, mimeType, size, storagePath)
-          VALUES ( ?, ?, ?, ?, ?, ? )
-        `,
-            ).run(
-              item.dbId,
-              att.partNumber || null,
-              att.filename || null,
-              att.contentType || null,
-              att.size || null,
-              att.storagePath || null,
-            )
-          }
-        }
-      },
-    )
-
-    bodyTransaction(bodyResults)
-  } catch (error) {
-    console.error('Error processing body batch:', error)
   }
 }
 
@@ -271,7 +216,6 @@ export async function initSyncAll() {
       return
     }
 
-    // This is to simulate a batch processing of email accounts
     const limit = 5
     let offset = 0
     while (offset < allEmailAccountsCount.count) {
@@ -281,7 +225,7 @@ export async function initSyncAll() {
 
       await Promise.all(
         emailAccounts.map(emailAccount =>
-          retry(() => syncEmailAccount(emailAccount.id)),
+          retry(() => syncEmailAccount(emailAccount)),
         ),
       )
 
@@ -292,7 +236,7 @@ export async function initSyncAll() {
   }
 }
 
-async function getConnectionParams(emailUid: number) {
+async function getConnectionParamsByUid(emailUid: number) {
   const email = db
     .query('SELECT * FROM emails WHERE imapUid = ?')
     .get(emailUid) as {
@@ -324,7 +268,8 @@ async function getConnectionParams(emailUid: number) {
 
 async function markAsSeen(emailUid: number) {
   try {
-    const { connectionParams, imapUid } = await getConnectionParams(emailUid)
+    const { connectionParams, imapUid } =
+      await getConnectionParamsByUid(emailUid)
     await retry(() => emailServer.markEmailAsSeen(connectionParams, imapUid))
 
     const email = db
@@ -346,7 +291,8 @@ async function markAsSeen(emailUid: number) {
 
 async function markAsUnseen(emailUid: number) {
   try {
-    const { connectionParams, imapUid } = await getConnectionParams(emailUid)
+    const { connectionParams, imapUid } =
+      await getConnectionParamsByUid(emailUid)
     await retry(() => emailServer.markEmailAsUnseen(connectionParams, imapUid))
 
     const email = db
@@ -366,7 +312,8 @@ async function markAsUnseen(emailUid: number) {
 
 async function deleteEmail(emailUid: number) {
   try {
-    const { connectionParams, imapUid } = await getConnectionParams(emailUid)
+    const { connectionParams, imapUid } =
+      await getConnectionParamsByUid(emailUid)
     await retry(() => emailServer.deleteEmail(connectionParams, imapUid))
 
     db.query('UPDATE emails SET deleted = 1 WHERE imapUid = ?').run(emailUid)
@@ -382,7 +329,7 @@ async function syncOneInbox(emailUserName: string) {
   if (!emailAccount) {
     throw new Error('No email account found for the given email address.')
   }
-  await syncEmailAccount(emailAccount.id)
+  await syncEmailAccount(emailAccount)
 }
 
 declare var self: Worker

@@ -44,6 +44,13 @@ export interface ImapAccount {
   password: string
 }
 
+export type ImapConnectionParams = {
+  username: string
+  password: string
+  host: string
+  port: number
+}
+
 export interface Email {
   uid: number
   seen: boolean

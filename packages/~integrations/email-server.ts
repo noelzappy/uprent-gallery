@@ -8,13 +8,7 @@ import {
 import { catchError } from '~utils'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-
-type ConnectionParams = {
-  username: string
-  password: string
-  host: string
-  port: number
-}
+import type { ImapConnectionParams } from '~core/database/data-types/email'
 
 export class EmailServer {
   private connectionPool: Record<string, Imap> = {}
@@ -22,14 +16,13 @@ export class EmailServer {
   private attachmentsBasePath: string = './storage/attachments'
 
   async loadEmailHeaders(
-    connectionParams: ConnectionParams,
+    connectionParams: ImapConnectionParams,
     uids: number[],
   ): Promise<Email[]> {
     const { imap, box } = await this.connectAndOpenBox(
       connectionParams,
       'INBOX',
     )
-
     try {
       if (!box.messages.total) {
         return []
@@ -45,7 +38,7 @@ export class EmailServer {
   }
 
   async getInboxStats(
-    connectionParams: ConnectionParams,
+    connectionParams: ImapConnectionParams,
   ): Promise<{ total: number; UIDs: number[] }> {
     const { imap, box } = await this.connectAndOpenBox(
       connectionParams,
@@ -59,7 +52,7 @@ export class EmailServer {
   }
 
   async markEmailAsSeen(
-    connectionParams: ConnectionParams,
+    connectionParams: ImapConnectionParams,
     emailUid: number,
   ): Promise<void> {
     const { imap } = await this.connectAndOpenBox(connectionParams, 'INBOX')
@@ -73,7 +66,7 @@ export class EmailServer {
   }
 
   async markEmailAsUnseen(
-    connectionParams: ConnectionParams,
+    connectionParams: ImapConnectionParams,
     emailUid: number,
   ): Promise<void> {
     const { imap } = await this.connectAndOpenBox(connectionParams, 'INBOX')
@@ -87,7 +80,7 @@ export class EmailServer {
   }
 
   async deleteEmail(
-    connectionParams: ConnectionParams,
+    connectionParams: ImapConnectionParams,
     emailUid: number,
   ): Promise<void> {
     const { imap } = await this.connectAndOpenBox(connectionParams, 'INBOX')
@@ -226,11 +219,94 @@ export class EmailServer {
     return attachments
   }
 
+  async fetchEmailBodies({
+    connectionParams,
+    emailUids,
+  }: {
+    connectionParams: ImapConnectionParams
+    emailUids: number[]
+  }): Promise<
+    Record<number, { body: string; attachments: EmailAttachment[] }>
+  > {
+    const { imap } = await this.connectAndOpenBox(connectionParams, 'INBOX')
+
+    try {
+      return await new Promise((resolve, reject) => {
+        const fetch = imap.fetch(emailUids, {
+          bodies: ['HEADER', 'TEXT'],
+          struct: true,
+        })
+
+        const results: Record<
+          number,
+          { body: string; attachments: EmailAttachment[] }
+        > = {}
+        const parsingPromises: Promise<void>[] = []
+
+        fetch.on('message', msg => {
+          let uid = 0
+          let structure: any = null
+          const bodyParts: Record<string, Buffer> = {}
+
+          msg.once('attributes', attrs => {
+            uid = attrs.uid
+            structure = attrs.struct
+          })
+
+          msg.on('body', (stream, info) => {
+            const chunks: Buffer[] = []
+            stream.on('data', chunk => chunks.push(chunk))
+            stream.once('end', () => {
+              bodyParts[info.which] = Buffer.concat(chunks)
+            })
+          })
+
+          const promise = new Promise<void>(resolveMsg => {
+            msg.once('end', async () => {
+              try {
+                const header = bodyParts['HEADER'] || Buffer.from('')
+                const text = bodyParts['TEXT'] || Buffer.from('')
+                const fullBody = Buffer.concat([header, text])
+
+                const parsed = await simpleParser(fullBody)
+                const body =
+                  parsed.html || parsed.textAsHtml || parsed.text || ''
+
+                const attachments = structure
+                  ? this.extractAttachmentMetadata(structure)
+                  : []
+
+                if (uid) {
+                  results[uid] = { body, attachments }
+                }
+              } catch (err) {
+                console.error(`Failed to parse email body for UID ${uid}`, err)
+              } finally {
+                resolveMsg()
+              }
+            })
+          })
+          parsingPromises.push(promise)
+        })
+
+        fetch.once('error', reject)
+
+        fetch.once('end', async () => {
+          await Promise.all(parsingPromises)
+          resolve(results)
+        })
+      })
+    } finally {
+      await catchError(this.closeBox(imap), false)
+      this.resetInactivityTimeout(connectionParams.username)
+    }
+  }
+
   async fetchEmailBody({
     connectionParams,
     emailUid,
   }: {
-    connectionParams: ConnectionParams
+    connectionParams: ImapConnectionParams
     emailUid: number
   }): Promise<string> {
     const { imap } = await this.connectAndOpenBox(connectionParams, 'INBOX')
@@ -276,7 +352,7 @@ export class EmailServer {
     partNumber,
     saveToDisk = true,
   }: {
-    connectionParams: ConnectionParams
+    connectionParams: ImapConnectionParams
     emailUid: number
     partNumber: string
     saveToDisk?: boolean
@@ -336,7 +412,7 @@ export class EmailServer {
     emailUid,
     attachment,
   }: {
-    connectionParams: ConnectionParams
+    connectionParams: ImapConnectionParams
     emailUid: number
     attachment: EmailAttachment
   }): Promise<string> {
@@ -422,7 +498,7 @@ export class EmailServer {
     }
   }
 
-  private async connect(params: ConnectionParams): Promise<Imap> {
+  private async connect(params: ImapConnectionParams): Promise<Imap> {
     const existingImap = this.connectionPool[params.username]
 
     if (existingImap) {
@@ -443,7 +519,7 @@ export class EmailServer {
     return imap
   }
 
-  private createImap(params: ConnectionParams): Promise<Imap> {
+  private createImap(params: ImapConnectionParams): Promise<Imap> {
     return new Promise<Imap>((resolve, reject) => {
       const imap = new Imap({
         user: params.username,
@@ -508,7 +584,7 @@ export class EmailServer {
   }
 
   private connectAndOpenBox(
-    params: ConnectionParams,
+    params: ImapConnectionParams,
     boxName: string,
   ): Promise<{ imap: Imap; box: Imap.Box }> {
     return new Promise<{ imap: Imap; box: Imap.Box }>(

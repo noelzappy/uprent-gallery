@@ -118,8 +118,6 @@ export const fetchEmailContentHandler = new Elysia()
           imapAccount.password,
           passwordDecryptionKey,
         )
-        const startTime = Date.now()
-        console.log(`Fetching email body for UID ${uid}...`, startTime)
 
         const emailBody = await emailServer.fetchEmailBody({
           connectionParams: {
@@ -130,13 +128,6 @@ export const fetchEmailContentHandler = new Elysia()
           },
           emailUid: uid,
         })
-
-        const endTime = Date.now()
-        console.log(
-          `Fetched email body for UID ${uid} in ${endTime - startTime}ms`,
-        )
-
-        console.log('Fetched email body for UID', uid, emailBody)
 
         db.query(
           `

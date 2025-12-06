@@ -134,11 +134,7 @@
 </script>
 
 <div class=".flex .h-full .w-full .flex-col .overflow-hidden .bg-white">
-  {#if loadingEmailContent}
-    <div class=".flex .h-full .items-center .justify-center .text-gray-500">
-      Loading...
-    </div>
-  {:else if loadingError}
+  {#if loadingError}
     <div class=".flex .h-full .items-center .justify-center .text-red-500">
       {loadingError}
     </div>
@@ -228,11 +224,24 @@
             {/each}
           </div>
         </div>
+      {:else if email && email.attachments && email?.attachments?.length > 0 && attachments.length === 0}
+        <div class=".mb-6 .border-b .border-t .border-gray-200 .py-4">
+          <div
+            class=".mb-2 .flex .items-center .gap-2 .text-sm .font-medium .text-gray-700"
+          >
+            <PaperclipSVG class=".h-4 .w-4" />
+            Loading Attachments...
+          </div>
+        </div>
       {/if}
 
       <div class=".prose .max-w-none .text-gray-800">
         {@html email.content}
       </div>
+    </div>
+  {:else if loadingEmailContent}
+    <div class=".flex .h-full .items-center .justify-center .text-gray-500">
+      Loading...
     </div>
   {:else}
     <div
