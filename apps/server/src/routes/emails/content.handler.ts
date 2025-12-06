@@ -7,7 +7,7 @@ import type {
   ImapAccount,
 } from '~core/database/data-types/email'
 import type { ImapConnectionParams } from '~core/database/data-types/email'
-import { statePlugin } from '@/state'
+import { statePlugin } from '@/plugins/state.plugin'
 import { emailServer } from '~integrations/email-server'
 import { decrypt, importEncryptionKey } from '~utils'
 

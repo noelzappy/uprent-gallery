@@ -1,6 +1,6 @@
 import { t, Elysia } from 'elysia'
 import { corePlugin } from '@/plugins'
-import { statePlugin } from '@/state'
+import { statePlugin } from '@/plugins/state.plugin'
 
 const paramsDTO = t.Object({
   id: t.Numeric(),

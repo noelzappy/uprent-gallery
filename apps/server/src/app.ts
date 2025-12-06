@@ -3,7 +3,7 @@ import { emailsRoute, propertiesRoute } from './routes'
 import { initDatabase, seedDatabase } from './database/setup-db'
 import db from './database/db'
 import { corePlugin } from './plugins'
-import { statePlugin, worker } from './state'
+import { statePlugin, worker } from './plugins/state.plugin'
 
 await initDatabase(db)
 await seedDatabase(db)

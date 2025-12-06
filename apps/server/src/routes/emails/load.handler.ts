@@ -2,7 +2,7 @@ import { t, Elysia } from 'elysia'
 import { corePlugin, res } from '@/plugins'
 import { EMAIL_CATEGORY } from '~core/database'
 import type { EmailDBRecord } from '~core/database/data-types/email'
-import { statePlugin } from '@/state'
+import { statePlugin } from '@/plugins/state.plugin'
 
 const emailHeadersResDTO = t.Object({
   emails: t.Array(
