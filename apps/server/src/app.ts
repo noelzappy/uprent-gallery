@@ -20,7 +20,7 @@ const app = new Elysia()
       () => {
         worker.postMessage('sync')
       },
-      10 * 60 * 1000,
+      5 * 60 * 1000,
     )
   })
 

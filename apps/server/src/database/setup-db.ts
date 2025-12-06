@@ -66,6 +66,12 @@ export const initDatabase = (db: Database) => {
 
     CREATE INDEX IF NOT EXISTS idx_emails_email_account_mailbox_date
       ON emails (emailAccountId, mailbox, date DESC);
+    
+    CREATE INDEX IF NOT EXISTS idx_emails_has_body
+      ON emails (emailAccountId, mailbox, bodyHtml) WHERE bodyHtml IS NOT NULL;
+    
+    CREATE INDEX IF NOT EXISTS idx_attachments_email_id
+      ON attachments (emailId);
     `)
 }
 

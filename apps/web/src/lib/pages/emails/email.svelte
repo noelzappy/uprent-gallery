@@ -224,15 +224,6 @@
             {/each}
           </div>
         </div>
-      {:else if email && email.attachments && email?.attachments?.length > 0 && attachments.length === 0}
-        <div class=".mb-6 .border-b .border-t .border-gray-200 .py-4">
-          <div
-            class=".mb-2 .flex .items-center .gap-2 .text-sm .font-medium .text-gray-700"
-          >
-            <PaperclipSVG class=".h-4 .w-4" />
-            Loading Attachments...
-          </div>
-        </div>
       {/if}
 
       <div class=".prose .max-w-none .text-gray-800">

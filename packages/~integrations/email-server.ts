@@ -23,18 +23,34 @@ export class EmailServer {
       connectionParams,
       'INBOX',
     )
-    try {
-      if (!box.messages.total) {
-        return []
-      }
 
-      const emails = await this.fetchAndParseEmailHeaders(imap, uids)
-
-      return emails
-    } finally {
-      await catchError(this.closeBox(imap), false)
-      this.resetInactivityTimeout(connectionParams.username)
+    if (!box.messages.total) {
+      return []
     }
+
+    const emails = await this.fetchAndParseEmailHeaders(imap, uids)
+    this.resetInactivityTimeout(connectionParams.username)
+    return emails
+  }
+
+  async loadCompleteEmails(
+    connectionParams: ImapConnectionParams,
+    uids: number[],
+  ): Promise<
+    Map<number, { email: Email; body: string; attachments: EmailAttachment[] }>
+  > {
+    const { imap, box } = await this.connectAndOpenBox(
+      connectionParams,
+      'INBOX',
+    )
+
+    if (!box.messages.total) {
+      return new Map()
+    }
+
+    const results = await this.fetchCompleteEmails(imap, uids)
+    this.resetInactivityTimeout(connectionParams.username)
+    return results
   }
 
   async getInboxStats(
@@ -47,6 +63,7 @@ export class EmailServer {
 
     const total = box.messages.total
     const allUIDs = await this.search(imap, ['ALL'])
+    this.resetInactivityTimeout(connectionParams.username)
 
     return { total, UIDs: allUIDs }
   }
@@ -92,6 +109,91 @@ export class EmailServer {
           if (expungeErr) return reject(expungeErr)
           resolve()
         })
+      })
+    })
+  }
+
+  private async fetchCompleteEmails(
+    imap: Imap,
+    uids: number[],
+  ): Promise<
+    Map<number, { email: Email; body: string; attachments: EmailAttachment[] }>
+  > {
+    return new Promise((resolve, reject) => {
+      const fetch = imap.fetch(uids, {
+        bodies: ['HEADER', 'TEXT'],
+        struct: true,
+      })
+
+      const results = new Map<
+        number,
+        { email: Email; body: string; attachments: EmailAttachment[] }
+      >()
+      const parsingPromises: Promise<void>[] = []
+
+      fetch.on('message', msg => {
+        let uid = 0
+        let flags: string[] = []
+        let structure: any = null
+        const bodyParts: Record<string, Buffer> = {}
+
+        msg.once('attributes', attrs => {
+          uid = attrs.uid
+          flags = attrs.flags || []
+          structure = attrs.struct
+        })
+
+        msg.on('body', (stream, info) => {
+          const chunks: Buffer[] = []
+          stream.on('data', chunk => chunks.push(chunk))
+          stream.once('end', () => {
+            bodyParts[info.which] = Buffer.concat(chunks)
+          })
+        })
+
+        const promise = new Promise<void>(resolveMsg => {
+          msg.once('end', async () => {
+            try {
+              const headerBuffer = bodyParts['HEADER'] || Buffer.from('')
+              const textBuffer = bodyParts['TEXT'] || Buffer.from('')
+              const fullBuffer = Buffer.concat([headerBuffer, textBuffer])
+
+              const parsed = await simpleParser(fullBuffer)
+              const body = parsed.html || parsed.textAsHtml || parsed.text || ''
+
+              const attachmentMetadata = structure
+                ? this.extractAttachmentMetadata(structure)
+                : []
+
+              const email = this.mapParsedToEmail(
+                uid,
+                flags,
+                parsed,
+                attachmentMetadata,
+              )
+
+              if (uid) {
+                results.set(uid, {
+                  email,
+                  body,
+                  attachments: attachmentMetadata,
+                })
+              }
+            } catch (err) {
+              console.error(`Failed to parse email UID ${uid}`, err)
+            } finally {
+              resolveMsg()
+            }
+          })
+        })
+        parsingPromises.push(promise)
+      })
+
+      fetch.once('error', reject)
+
+      fetch.once('end', async () => {
+        await Promise.all(parsingPromises)
+        resolve(results)
       })
     })
   }
@@ -297,7 +399,6 @@ export class EmailServer {
         })
       })
     } finally {
-      await catchError(this.closeBox(imap), false)
       this.resetInactivityTimeout(connectionParams.username)
     }
   }
@@ -341,7 +442,6 @@ export class EmailServer {
         fetch.once('error', reject)
       })
     } finally {
-      await catchError(this.closeBox(imap), false)
       this.resetInactivityTimeout(connectionParams.username)
     }
   }
@@ -403,7 +503,7 @@ export class EmailServer {
         },
       )
     } finally {
-      await catchError(this.closeBox(imap), false)
+      this.resetInactivityTimeout(connectionParams.username)
     }
   }
 
@@ -439,6 +539,87 @@ export class EmailServer {
 
     await writeFile(filePath, content)
     return filePath
+  }
+
+  async fetchAndSaveAttachmentsBulk({
+    connectionParams,
+    attachmentGroups,
+  }: {
+    connectionParams: ImapConnectionParams
+    attachmentGroups: Array<{
+      emailUid: number
+      attachments: EmailAttachment[]
+    }>
+  }): Promise<Map<number, Map<string, string>>> {
+    const { imap } = await this.connectAndOpenBox(connectionParams, 'INBOX')
+    const results = new Map<number, Map<string, string>>()
+
+    try {
+      for (const group of attachmentGroups) {
+        const emailResults = new Map<string, string>()
+        const emailDir = join(
+          this.attachmentsBasePath,
+          group.emailUid.toString(),
+        )
+        await mkdir(emailDir, { recursive: true })
+
+        const downloadPromises = group.attachments
+          .filter(att => att.partNumber && !att.path)
+          .map(async attachment => {
+            try {
+              const { content } = await this.fetchAttachmentRaw(
+                imap,
+                group.emailUid,
+                attachment.partNumber!,
+              )
+
+              const filename =
+                attachment.filename || `attachment-${attachment.uid}`
+              const filePath = join(emailDir, filename)
+              await writeFile(filePath, content)
+              emailResults.set(attachment.partNumber!, filePath)
+            } catch (err) {
+              console.error(
+                `Failed to download attachment ${attachment.partNumber}:`,
+                err,
+              )
+            }
+          })
+
+        await Promise.all(downloadPromises)
+        results.set(group.emailUid, emailResults)
+      }
+      return results
+    } finally {
+      this.resetInactivityTimeout(connectionParams.username)
+    }
+  }
+
+  private async fetchAttachmentRaw(
+    imap: Imap,
+    emailUid: number,
+    partNumber: string,
+  ): Promise<{ content: Buffer }> {
+    return new Promise((resolve, reject) => {
+      const fetch = imap.fetch([emailUid], {
+        bodies: [`${partNumber}`],
+        struct: false,
+      })
+
+      const chunks: Buffer[] = []
+
+      fetch.on('message', msg => {
+        msg.on('body', stream => {
+          stream.on('data', chunk => chunks.push(chunk))
+        })
+
+        msg.once('end', () => {
+          resolve({ content: Buffer.concat(chunks) })
+        })
+      })
+
+      fetch.once('error', reject)
+    })
   }
 
   private mapParsedToEmail(
@@ -527,9 +708,15 @@ export class EmailServer {
         host: params.host,
         port: params.port,
         tls: true,
-        authTimeout: 10000,
-        connTimeout: 10000,
-        keepalive: true,
+        tlsOptions: { rejectUnauthorized: false },
+        authTimeout: 15000,
+        connTimeout: 15000,
+        keepalive: {
+          interval: 10000,
+          idleInterval: 300000,
+          forceNoop: true,
+        },
+        debug: undefined,
       })
 
       const cleanup = () => {

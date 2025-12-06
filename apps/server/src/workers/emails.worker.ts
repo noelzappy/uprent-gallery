@@ -9,21 +9,31 @@ import { decrypt, importEncryptionKey } from '~utils'
 
 const RETRY_OPTIONS = {
   retries: 3,
-  delay: 500,
+  delay: 300,
+  backoffMultiplier: 1.3,
 }
 
 async function retry<T>(
   fn: () => Promise<T>,
-  options: { retries: number; delay: number } = RETRY_OPTIONS,
+  options: {
+    retries: number
+    delay: number
+    backoffMultiplier?: number
+  } = RETRY_OPTIONS,
 ): Promise<T> {
   let lastError: any
+  const backoff = options.backoffMultiplier || 1
+
   for (let i = 0; i < options.retries; i++) {
     try {
       return await fn()
     } catch (error) {
       lastError = error
-      console.warn(`Retry attempt ${i + 1} failed:`, error)
-      await new Promise(resolve => setTimeout(resolve, options.delay * (i + 1)))
+
+      if (i < options.retries - 1) {
+        const waitTime = options.delay * Math.pow(backoff, i)
+        await new Promise(resolve => setTimeout(resolve, waitTime))
+      }
     }
   }
   throw lastError
@@ -60,34 +70,50 @@ async function syncEmailAccount(emailAccount: ImapAccount) {
     console.log(
       `Account ${emailAccount.emailAddress} has ${UIDs.length} emails on server.`,
     )
-    const uidsToFetch = UIDs.filter(
-      uid => !lastSyncedUidRow?.maxUid || uid < lastSyncedUidRow.maxUid,
-    ).reverse()
 
-    if (uidsToFetch.length === 0) {
+    const uidsToFetchSet = new Set(
+      UIDs.filter(
+        uid => !lastSyncedUidRow?.maxUid || uid > lastSyncedUidRow.maxUid,
+      ),
+    )
+
+    if (uidsToFetchSet.size === 0) {
       console.log(
         `No new emails to sync for account ${emailAccount.emailAddress}.`,
       )
       return
     }
-    const processHeader = async (uids: number[]) => {
-      const BATCH_SIZE = 5
-      for (let i = 0; i < uids.length; i += BATCH_SIZE) {
-        const batchUids = uids.slice(i, i + BATCH_SIZE)
-        await fetchAndSaveHeaders(batchUids, connectionParams, emailAccount)
-      }
+
+    const uidsToFetch = Array.from(uidsToFetchSet).reverse()
+    console.log(
+      `Syncing ${uidsToFetch.length} emails for ${emailAccount.emailAddress}`,
+    )
+
+    const HEADER_BATCH_SIZE = 50
+    for (let i = 0; i < uidsToFetch.length; i += HEADER_BATCH_SIZE) {
+      const batchUids = uidsToFetch.slice(i, i + HEADER_BATCH_SIZE)
+      await fetchAndSaveHeaders(batchUids, connectionParams, emailAccount)
     }
 
-    const processBody = async (uids: number[]) => {
-      const BATCH_SIZE = 2
-      for (let i = 0; i < uids.length; i += BATCH_SIZE) {
-        const batchUids = uids.slice(i, i + BATCH_SIZE)
-        await fetchAndSaveEmailBody(batchUids, connectionParams, emailAccount)
+    const emailsNeedingBodies = db
+      .query<{ imapUid: number }, any>(
+        `SELECT imapUid FROM emails 
+         WHERE emailAccountId = ? AND mailbox = ? 
+         AND bodyHtml IS NULL AND imapUid IN (${uidsToFetch.map(() => '?').join(',')})
+         ORDER BY imapUid DESC`,
+      )
+      .all(emailAccount.id, 'INBOX', ...uidsToFetch) as { imapUid: number }[]
+
+    if (emailsNeedingBodies.length > 0) {
+      console.log(`Fetching bodies for ${emailsNeedingBodies.length} emails...`)
+      const BODY_BATCH_SIZE = 7
+      const bodyUids = emailsNeedingBodies.map(e => e.imapUid)
+
+      for (let i = 0; i < bodyUids.length; i += BODY_BATCH_SIZE) {
+        const batchUids = bodyUids.slice(i, i + BODY_BATCH_SIZE)
+        await fetchAndSaveBodies(batchUids, connectionParams, emailAccount)
       }
     }
-
-    await processHeader(uidsToFetch)
-    await processBody(uidsToFetch)
 
     console.log(`Completed sync for account ${emailAccount.emailAddress}.`)
   } catch (error) {
@@ -95,11 +121,71 @@ async function syncEmailAccount(emailAccount: ImapAccount) {
   }
 }
 
-const fetchAndSaveEmailBody = async (
+async function fetchAndSaveHeaders(
   uids: number[],
   connectionParams: ImapConnectionParams,
   emailAccount: ImapAccount,
-) => {
+): Promise<void> {
+  const emails = await retry(() =>
+    emailServer.loadEmailHeaders(connectionParams, uids),
+  )
+
+  if (emails.length === 0) return
+
+  const headerTransaction = db.transaction((items: Email[]) => {
+    const insertStmt = db.prepare(`
+      INSERT INTO emails
+      (emailAccountId, emailAddress, mailbox, imapUid, messageId, date, subject, 
+       fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, 
+       attachmentJson, hasAttachments, seen)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(emailAccountId, mailbox, imapUid) DO UPDATE SET
+        messageId = excluded.messageId,
+        date = excluded.date,
+        subject = excluded.subject,
+        fromName = excluded.fromName,
+        fromEmail = excluded.fromEmail,
+        toJson = excluded.toJson,
+        ccJson = excluded.ccJson,
+        inReplyTo = excluded.inReplyTo,
+        refs = excluded.refs,
+        flagsJson = excluded.flagsJson,
+        attachmentJson = excluded.attachmentJson,
+        hasAttachments = excluded.hasAttachments,
+        seen = excluded.seen
+    `)
+
+    for (const email of items) {
+      insertStmt.run(
+        emailAccount.id,
+        emailAccount.emailAddress,
+        'INBOX',
+        email.uid,
+        email.messageId,
+        email.datetime,
+        email.subject,
+        email.from.name || null,
+        email.from.email,
+        JSON.stringify(email.to),
+        email.cc ? JSON.stringify(email.cc) : null,
+        email.inReplyTo || null,
+        email.references ? JSON.stringify(email.references) : null,
+        JSON.stringify(email.flags),
+        email.attachments ? JSON.stringify(email.attachments) : null,
+        email.attachments && email.attachments.length > 0 ? 1 : 0,
+        email.seen ? 1 : 0,
+      )
+    }
+  })
+
+  headerTransaction(emails)
+}
+
+async function fetchAndSaveBodies(
+  uids: number[],
+  connectionParams: ImapConnectionParams,
+  emailAccount: ImapAccount,
+): Promise<void> {
   const emailBodies = await retry(() =>
     emailServer.fetchEmailBodies({
       connectionParams,
@@ -107,25 +193,22 @@ const fetchAndSaveEmailBody = async (
     }),
   )
 
-  const saveBodyTransaction = db.transaction(
+  const bodyTransaction = db.transaction(
     (items: { uid: number; body: string; attachments: any[] }[]) => {
+      const updateStmt = db.prepare(`
+        UPDATE emails
+        SET bodyHtml = ?, attachmentJson = ?, hasAttachments = ?
+        WHERE emailAccountId = ? AND mailbox = ? AND imapUid = ?
+      `)
+
       for (const item of items) {
-        db.query(
-          `
-              INSERT INTO emails
-              (bodyHtml, attachmentJson, imapUid, emailAccountId, mailbox, emailAddress)
-              VALUES (?, ?, ?, ?, ?, ?)
-              ON CONFLICT(emailAccountId, mailbox, imapUid) DO UPDATE SET
-                bodyHtml = excluded.bodyHtml,
-                attachmentJson = excluded.attachmentJson
-            `,
-        ).run(
+        updateStmt.run(
           item.body,
           JSON.stringify(item.attachments),
-          item.uid,
+          item.attachments.length > 0 ? 1 : 0,
           emailAccount.id,
           'INBOX',
-          emailAccount.emailAddress,
+          item.uid,
         )
       }
     },
@@ -139,102 +222,81 @@ const fetchAndSaveEmailBody = async (
     }),
   )
 
-  await saveBodyTransaction(bodyItems)
+  bodyTransaction(bodyItems)
 
-  const emailAttachments = bodyItems.flatMap(email =>
-    (email.attachments || []).map(att => ({
-      emailUid: email.uid,
-      attachment: att,
-    })),
+  const emailsWithAttachments = bodyItems.filter(
+    item => item.attachments.length > 0,
   )
 
-  for (const att of emailAttachments) {
-    const path = await retry(() =>
-      emailServer.fetchAndSaveAttachment({
-        connectionParams,
-        emailUid: att.emailUid,
-        attachment: att.attachment,
-      }),
-    )
-
-    db.query(
-      `
-        INSERT INTO attachments
-        (emailId, partId, filename, mimeType, size, storagePath)
-        VALUES (
-          (SELECT id FROM emails WHERE emailAccountId = ? AND mailbox = ? AND imapUid = ?),
-          ?, ?, ?, ?, ?
-        )
-      `,
-    ).run(
-      emailAccount.id,
-      'INBOX',
-      att.emailUid,
-      att.attachment.partNumber || '',
-      att.attachment.filename || null,
-      att.attachment.contentType || null,
-      att.attachment.size || null,
-      path,
-    )
+  if (emailsWithAttachments.length > 0) {
+    const CONCURRENT_EMAILS = 3
+    for (let i = 0; i < emailsWithAttachments.length; i += CONCURRENT_EMAILS) {
+      const batch = emailsWithAttachments.slice(i, i + CONCURRENT_EMAILS)
+      await Promise.all(
+        batch.map(item =>
+          downloadAttachmentsForEmail(
+            item.uid,
+            item.attachments,
+            connectionParams,
+            emailAccount,
+          ),
+        ),
+      )
+    }
   }
 }
 
-async function fetchAndSaveHeaders(
-  uids: number[],
+async function downloadAttachmentsForEmail(
+  emailUid: number,
+  attachments: any[],
   connectionParams: ImapConnectionParams,
   emailAccount: ImapAccount,
 ): Promise<void> {
   try {
-    const emails = await retry(() =>
-      emailServer.loadEmailHeaders(connectionParams, uids),
+    const attachmentPaths = await retry(() =>
+      emailServer.fetchAndSaveAttachmentsBulk({
+        connectionParams,
+        attachmentGroups: [{ emailUid, attachments }],
+      }),
     )
-    console.log(
-      `Fetched ${emails.length} headers for account ${emailAccount.emailAddress}`,
-    )
-    const headerTransaction = db.transaction((items: Email[]) => {
-      for (const email of items) {
-        db.query<{ id: number }, any[]>(
-          `
-          INSERT INTO emails
-          (emailAccountId, emailAddress, mailbox, imapUid, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(emailAccountId, mailbox, imapUid) DO UPDATE SET
-            messageId = excluded.messageId,
-            date = excluded.date,
-            subject = excluded.subject,
-            fromName = excluded.fromName,
-            fromEmail = excluded.fromEmail,
-            toJson = excluded.toJson,
-            ccJson = excluded.ccJson,
-            inReplyTo = excluded.inReplyTo,
-            refs = excluded.refs,
-            flagsJson = excluded.flagsJson,
-            attachmentJson = excluded.attachmentJson
-          RETURNING id
-        `,
-        ).get([
-          emailAccount.id,
-          emailAccount.emailAddress,
-          'INBOX',
-          email.uid,
-          email.messageId,
-          email.datetime,
-          email.subject,
-          email.from.name || null,
-          email.from.email,
-          JSON.stringify(email.to),
-          email.cc ? JSON.stringify(email.cc) : null,
-          email.inReplyTo || null,
-          email.references ? JSON.stringify(email.references) : null,
-          JSON.stringify(email.flags),
-          email.attachments ? JSON.stringify(email.attachments) : null,
-        ])
+
+    const paths = attachmentPaths.get(emailUid)
+    if (!paths) return
+
+    const attachmentInsertStmt = db.prepare(`
+      INSERT INTO attachments
+      (emailId, partId, filename, mimeType, size, storagePath)
+      VALUES (
+        (SELECT id FROM emails WHERE emailAccountId = ? AND mailbox = ? AND imapUid = ?),
+        ?, ?, ?, ?, ?
+      )
+      ON CONFLICT DO NOTHING
+    `)
+
+    const attachmentTransaction = db.transaction(() => {
+      for (const att of attachments) {
+        const path = paths.get(att.partNumber)
+        if (path) {
+          attachmentInsertStmt.run(
+            emailAccount.id,
+            'INBOX',
+            emailUid,
+            att.partNumber || '',
+            att.filename || null,
+            att.contentType || null,
+            att.size || null,
+            path,
+          )
+        }
       }
     })
 
-    headerTransaction(emails)
+    attachmentTransaction()
   } catch (error) {
-    console.error('Error fetching/saving headers:', error)
+    console.error(
+      `Failed to download attachments for email ${emailUid}:`,
+      error,
+    )
   }
 }
 
@@ -249,21 +311,15 @@ export async function initSyncAll() {
       return
     }
 
-    const limit = 5
-    let offset = 0
-    while (offset < allEmailAccountsCount.count) {
-      const emailAccounts = db
-        .query('SELECT * FROM email_accounts LIMIT ? OFFSET ?')
-        .all(limit, offset) as ImapAccount[]
+    const emailAccounts = db
+      .query('SELECT * FROM email_accounts')
+      .all() as ImapAccount[]
 
-      await Promise.all(
-        emailAccounts.map(emailAccount =>
-          retry(() => syncEmailAccount(emailAccount)),
-        ),
-      )
-
-      offset += limit
-    }
+    await Promise.all(
+      emailAccounts.map(emailAccount =>
+        retry(() => syncEmailAccount(emailAccount)),
+      ),
+    )
   } catch (error) {
     console.error('Error in email sync worker:', error)
   }

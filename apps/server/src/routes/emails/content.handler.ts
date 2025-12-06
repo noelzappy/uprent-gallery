@@ -6,9 +6,48 @@ import type {
   EmailDBRecord,
   ImapAccount,
 } from '~core/database/data-types/email'
+import type { ImapConnectionParams } from '~core/database/data-types/email'
 import { statePlugin } from '@/state'
 import { emailServer } from '~integrations/email-server'
 import { decrypt, importEncryptionKey } from '~utils'
+
+const connectionParamsCache = new Map<string, ImapConnectionParams>()
+let encryptionKey: CryptoKey | null = null
+
+async function getConnectionParams(
+  db: any,
+  emailAccountId: number,
+): Promise<ImapConnectionParams> {
+  const cacheKey = `account-${emailAccountId}`
+
+  if (connectionParamsCache.has(cacheKey)) {
+    return connectionParamsCache.get(cacheKey)!
+  }
+
+  const imapAccount = db
+    .query('SELECT * FROM email_accounts WHERE id = ?')
+    .get(emailAccountId) as ImapAccount | undefined
+
+  if (!imapAccount) {
+    throw new Error('IMAP account not found')
+  }
+
+  if (!encryptionKey) {
+    encryptionKey = await importEncryptionKey(Bun.env.ENCRYPTION_KEY!)
+  }
+
+  const password = await decrypt(imapAccount.password, encryptionKey)
+
+  const params: ImapConnectionParams = {
+    username: imapAccount.username,
+    password,
+    host: imapAccount.imapHost,
+    port: imapAccount.imapPort,
+  }
+
+  connectionParamsCache.set(cacheKey, params)
+  return params
+}
 
 const resDTO = t.Object({
   email: t.Object({
@@ -80,13 +119,7 @@ export const fetchEmailContentHandler = new Elysia()
       }
 
       let result = db
-        .query(
-          `
-        SELECT *
-        FROM emails
-        WHERE imapUid = ?
-      `,
-        )
+        .query('SELECT * FROM emails WHERE imapUid = ?')
         .get(uid) as EmailDBRecord | undefined
 
       if (!result) {
@@ -94,50 +127,81 @@ export const fetchEmailContentHandler = new Elysia()
       }
 
       if (!result.bodyHtml) {
-        const emailAccount = Bun.env.EMAIL_USERNAME!
-
-        const imapAccount = db
-          .query(
-            `
-          SELECT *
-          FROM email_accounts
-          WHERE emailAddress = ?
-        `,
+        try {
+          const connectionParams = await getConnectionParams(
+            db,
+            result.emailAccountId,
           )
-          .get(emailAccount) as ImapAccount | undefined
 
-        if (!imapAccount) {
-          return res.serverError('IMAP account not found for email user')
+          const emailBodies = await emailServer.fetchEmailBodies({
+            connectionParams,
+            emailUids: [uid],
+          })
+
+          const emailData = emailBodies[uid]
+          if (emailData) {
+            db.query(
+              `UPDATE emails
+               SET bodyHtml = ?, attachmentJson = ?, hasAttachments = ?
+               WHERE imapUid = ?`,
+            ).run(
+              emailData.body,
+              JSON.stringify(emailData.attachments),
+              emailData.attachments.length > 0 ? 1 : 0,
+              uid,
+            )
+
+            result = {
+              ...result,
+              bodyHtml: emailData.body,
+              attachmentJson: JSON.stringify(emailData.attachments),
+              hasAttachments: emailData.attachments.length > 0 ? 1 : 0,
+            }
+
+            if (emailData.attachments.length > 0) {
+              const attachmentPaths =
+                await emailServer.fetchAndSaveAttachmentsBulk({
+                  connectionParams,
+                  attachmentGroups: [
+                    { emailUid: uid, attachments: emailData.attachments },
+                  ],
+                })
+
+              const paths = attachmentPaths.get(uid)
+              if (paths) {
+                const insertStmt = db.prepare(
+                  `INSERT INTO attachments
+                   (emailId, partId, filename, mimeType, size, storagePath)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT DO NOTHING`,
+                )
+
+                const transaction = db.transaction(() => {
+                  for (const att of emailData.attachments) {
+                    if (!att.partNumber) continue
+                    const path = paths.get(att.partNumber)
+                    if (path) {
+                      insertStmt.run(
+                        result!.id,
+                        att.partNumber,
+                        att.filename || null,
+                        att.contentType || null,
+                        att.size || null,
+                        path,
+                      )
+                    }
+                  }
+                })
+                transaction()
+              }
+            }
+          } else {
+            return res.serverError('Failed to fetch email body from server')
+          }
+        } catch (error) {
+          console.error('Error fetching email body:', error)
+          return res.serverError('Failed to fetch email content')
         }
-
-        const passwordDecryptionKey = await importEncryptionKey(
-          Bun.env.ENCRYPTION_KEY!,
-        )
-
-        const password = await decrypt(
-          imapAccount.password,
-          passwordDecryptionKey,
-        )
-
-        const emailBody = await emailServer.fetchEmailBody({
-          connectionParams: {
-            username: imapAccount.username,
-            password,
-            host: imapAccount.imapHost,
-            port: imapAccount.imapPort,
-          },
-          emailUid: uid,
-        })
-
-        db.query(
-          `
-          UPDATE emails
-          SET bodyHtml = ?
-          WHERE imapUid = ?
-        `,
-        ).run(emailBody, uid)
-
-        result = { ...result, bodyHtml: emailBody }
       }
 
       return res.ok({
