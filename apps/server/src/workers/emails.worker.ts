@@ -107,10 +107,6 @@ const fetchAndSaveEmailBody = async (
     }),
   )
 
-  console.log(
-    `Fetched bodies for ${Object.keys(emailBodies).length} emails for account ${emailAccount.emailAddress}`,
-  )
-
   const saveBodyTransaction = db.transaction(
     (items: { uid: number; body: string; attachments: any[] }[]) => {
       for (const item of items) {
@@ -144,6 +140,48 @@ const fetchAndSaveEmailBody = async (
   )
 
   await saveBodyTransaction(bodyItems)
+
+  const emailAttachments = bodyItems.flatMap(email =>
+    (email.attachments || []).map(att => ({
+      emailUid: email.uid,
+      attachment: att,
+    })),
+  )
+
+  for (const att of emailAttachments) {
+    const path = await retry(() =>
+      emailServer.fetchAndSaveAttachment({
+        connectionParams,
+        emailUid: att.emailUid,
+        attachment: att.attachment,
+      }),
+    )
+
+    db.query(
+      `
+        INSERT INTO attachments
+        (emailId, partId, filename, mimeType, size, storagePath)
+        VALUES (
+          (SELECT id FROM emails WHERE emailAccountId = ? AND mailbox = ? AND imapUid = ?),
+          ?, ?, ?, ?, ?
+        )
+        ON CONFLICT(emailId, partId) DO UPDATE SET
+          filename = excluded.filename,
+          mimeType = excluded.mimeType,
+          size = excluded.size,
+          storagePath = excluded.storagePath
+      `,
+    ).run(
+      emailAccount.id,
+      'INBOX',
+      att.emailUid,
+      att.attachment.partNumber || '',
+      att.attachment.filename || null,
+      att.attachment.contentType || null,
+      att.attachment.size || null,
+      path,
+    )
+  }
 }
 
 async function fetchAndSaveHeaders(
