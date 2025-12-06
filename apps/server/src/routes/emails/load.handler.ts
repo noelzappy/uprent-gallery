@@ -72,19 +72,25 @@ export const loadEmailsHandler = new Elysia()
         .query(
           `
       SELECT 
-        id, imapUid, categoriesJson, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson,
-        COUNT(*) OVER() as totalCount
+        id, imapUid, categoriesJson, messageId, date, subject, fromName, fromEmail, toJson, ccJson, inReplyTo, refs, flagsJson, attachmentJson
       FROM emails
       WHERE deleted = 0 AND emailAddress = ?
       ORDER BY date DESC
       LIMIT ? OFFSET ?
     `,
         )
-        .all(emailUserName, pageSize, offset) as (EmailDBRecord & {
-        totalCount: number
-      })[]
+        .all(emailUserName, pageSize, offset) as EmailDBRecord[]
+      const countResult = db
+        .query(
+          `
+      SELECT COUNT(*) as totalCount
+      FROM emails
+      WHERE deleted = 0 AND emailAddress = ?
+    `,
+        )
+        .get(emailUserName) as { totalCount: number }
 
-      const totalEmails = result.length > 0 ? result[0].totalCount : 0
+      const totalEmails = countResult ? countResult.totalCount : 0
       const hasMore = offset + pageSize < totalEmails
 
       return res.ok({
