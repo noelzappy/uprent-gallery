@@ -89,7 +89,7 @@ async function syncEmailAccount(emailAccount: ImapAccount) {
       `Syncing ${uidsToFetch.length} emails for ${emailAccount.emailAddress}`,
     )
 
-    const HEADER_BATCH_SIZE = 50
+    const HEADER_BATCH_SIZE = 20
     for (let i = 0; i < uidsToFetch.length; i += HEADER_BATCH_SIZE) {
       const batchUids = uidsToFetch.slice(i, i + HEADER_BATCH_SIZE)
       await fetchAndSaveHeaders(batchUids, connectionParams, emailAccount)
